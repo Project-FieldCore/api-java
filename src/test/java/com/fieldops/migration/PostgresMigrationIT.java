@@ -76,7 +76,7 @@ class PostgresMigrationIT {
     try (var connection = dataSource.getConnection();
         var statement =
             connection.prepareStatement(
-                "INSERT INTO app_user (id, email, full_name, password_hash, role) VALUES (?, ?, ?, ?, ?)")) {
+                "INSERT INTO app_user (id, email, name, password_hash, role) VALUES (?, ?, ?, ?, ?)")) {
       statement.setObject(1, id);
       statement.setString(2, email);
       statement.setString(3, "Migration test");
