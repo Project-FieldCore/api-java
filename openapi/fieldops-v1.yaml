@@ -17,7 +17,8 @@ paths:
     post:
       tags: [Auth]
       security: []
-      summary: Refresh a token pair
+      summary: Rotate a refresh token
+      description: Reusing a previously rotated refresh token revokes its entire token family.
       requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/RefreshTokenRequest'}}}}
       responses: {'200': {description: Refreshed, content: {application/json: {schema: {$ref: '#/components/schemas/TokenResponse'}}}}, '400': {$ref: '#/components/responses/ValidationError'}, '401': {$ref: '#/components/responses/Unauthorized'}}
   /api/v1/users:

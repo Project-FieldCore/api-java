@@ -4,8 +4,12 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.jsonwebtoken.Jwts;
+import io.jsonwebtoken.security.Keys;
+import java.nio.charset.StandardCharsets;
+import java.time.Instant;
+import java.util.Date;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -21,6 +25,7 @@ import org.springframework.test.web.servlet.MockMvc;
 @AutoConfigureMockMvc
 @TestPropertySource(properties = "fieldops.security.jwt.secret=test-signing-key-for-auth-integration-only-32")
 class AuthControllerTest {
+  private static final String TEST_JWT_SECRET = "test-signing-key-for-auth-integration-only-32";
   @Autowired MockMvc mvc;
   @Autowired JdbcTemplate jdbc;
   @Autowired PasswordEncoder passwords;
@@ -33,9 +38,13 @@ class AuthControllerTest {
     String login = mvc.perform(post("/api/v1/auth/login").contentType("application/json").content("{\"email\":\"active@example.com\",\"password\":\"correct-password\"}"))
         .andExpect(status().isOk()).andExpect(jsonPath("$.accessToken").isNotEmpty()).andExpect(jsonPath("$.user.role").value("TECHNICIAN")).andReturn().getResponse().getContentAsString();
     String refresh = json.readTree(login).get("refreshToken").asText();
+    String rotation = mvc.perform(post("/api/v1/auth/refresh").header("Authorization", "Bearer " + expiredAccessToken()).contentType("application/json").content("{\"refreshToken\":\"" + refresh + "\"}"))
+        .andExpect(status().isOk()).andExpect(jsonPath("$.refreshToken").isNotEmpty())
+        .andReturn().getResponse().getContentAsString();
+    String rotatedRefresh = json.readTree(rotation).get("refreshToken").asText();
     mvc.perform(post("/api/v1/auth/refresh").contentType("application/json").content("{\"refreshToken\":\"" + refresh + "\"}"))
-        .andExpect(status().isOk()).andExpect(jsonPath("$.refreshToken").isNotEmpty());
-    mvc.perform(post("/api/v1/auth/refresh").contentType("application/json").content("{\"refreshToken\":\"" + refresh + "\"}"))
+        .andExpect(status().isUnauthorized()).andExpect(jsonPath("$.code").value("INVALID_CREDENTIALS"));
+    mvc.perform(post("/api/v1/auth/refresh").contentType("application/json").content("{\"refreshToken\":\"" + rotatedRefresh + "\"}"))
         .andExpect(status().isUnauthorized()).andExpect(jsonPath("$.code").value("INVALID_CREDENTIALS"));
   }
 
@@ -49,5 +58,11 @@ class AuthControllerTest {
 
   private void createUser(String email, String status) {
     jdbc.update("insert into app_user (id,email,name,password_hash,role,status) values (?,?,?,?,?,?)", UUID.randomUUID(), email, "Test User", passwords.encode("correct-password"), "TECHNICIAN", status);
+  }
+
+  private String expiredAccessToken() {
+    return Jwts.builder().subject(UUID.randomUUID().toString())
+        .expiration(Date.from(Instant.now().minusSeconds(60)))
+        .signWith(Keys.hmacShaKeyFor(TEST_JWT_SECRET.getBytes(StandardCharsets.UTF_8))).compact();
   }
 }
