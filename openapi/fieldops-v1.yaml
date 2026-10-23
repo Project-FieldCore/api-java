@@ -1,0 +1,123 @@
+openapi: 3.0.3
+info:
+  title: FieldOps API
+  version: 1.0.0
+  description: Canonical initial contract for authentication, users and master data.
+servers: [{url: http://localhost:8080, description: Local development}]
+security: [{bearerAuth: []}]
+paths:
+  /api/v1/auth/login:
+    post:
+      tags: [Auth]
+      security: []
+      summary: Authenticate a user
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/LoginRequest'}, example: {email: ana.silva@example.com, password: example-only-password}}}}
+      responses: {'200': {description: Authenticated, content: {application/json: {schema: {$ref: '#/components/schemas/TokenResponse'}}}}, '400': {$ref: '#/components/responses/ValidationError'}, '401': {$ref: '#/components/responses/Unauthorized'}}
+  /api/v1/auth/refresh:
+    post:
+      tags: [Auth]
+      security: []
+      summary: Refresh a token pair
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/RefreshTokenRequest'}}}}
+      responses: {'200': {description: Refreshed, content: {application/json: {schema: {$ref: '#/components/schemas/TokenResponse'}}}}, '400': {$ref: '#/components/responses/ValidationError'}, '401': {$ref: '#/components/responses/Unauthorized'}}
+  /api/v1/users:
+    get: {tags: [Users], summary: List users, parameters: [{$ref: '#/components/parameters/Page'}, {$ref: '#/components/parameters/Size'}], responses: {'200': {description: Users, content: {application/json: {schema: {$ref: '#/components/schemas/UserPage'}}}}, '401': {$ref: '#/components/responses/Unauthorized'}, '403': {$ref: '#/components/responses/Forbidden'}}}
+    post: {tags: [Users], summary: Create a user, requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/CreateUserRequest'}}}}, responses: {'201': {description: Created, content: {application/json: {schema: {$ref: '#/components/schemas/User'}}}}, '400': {$ref: '#/components/responses/ValidationError'}, '409': {$ref: '#/components/responses/Conflict'}}}
+  /api/v1/users/{userId}:
+    parameters: [{$ref: '#/components/parameters/UserId'}]
+    get: {tags: [Users], summary: Get a user, responses: {'200': {description: User, content: {application/json: {schema: {$ref: '#/components/schemas/User'}}}}, '404': {$ref: '#/components/responses/NotFound'}}}
+    patch: {tags: [Users], summary: Update a user, requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/UpdateUserRequest'}}}}, responses: {'200': {description: Updated, content: {application/json: {schema: {$ref: '#/components/schemas/User'}}}}, '400': {$ref: '#/components/responses/ValidationError'}, '404': {$ref: '#/components/responses/NotFound'}, '409': {$ref: '#/components/responses/Conflict'}}}
+    put: {tags: [Users], summary: Replace a user, requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/UpdateUserRequest'}}}}, responses: {'200': {description: Updated, content: {application/json: {schema: {$ref: '#/components/schemas/User'}}}}}}
+  /api/v1/clients:
+    get: {tags: [Clients], summary: List clients, responses: {'200': {description: Clients, content: {application/json: {schema: {$ref: '#/components/schemas/ClientPage'}}}}}}
+    post: {tags: [Clients], summary: Create a client, requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/ClientInput'}}}}, responses: {'201': {description: Created, content: {application/json: {schema: {$ref: '#/components/schemas/Client'}}}}, '400': {$ref: '#/components/responses/ValidationError'}, '409': {$ref: '#/components/responses/Conflict'}}}
+  /api/v1/clients/{clientId}:
+    parameters: [{$ref: '#/components/parameters/ClientId'}]
+    get: {tags: [Clients], summary: Get a client, responses: {'200': {description: Client, content: {application/json: {schema: {$ref: '#/components/schemas/Client'}}}}, '404': {$ref: '#/components/responses/NotFound'}}}
+    patch: {tags: [Clients], summary: Update a client, requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/ClientInput'}}}}, responses: {'200': {description: Updated, content: {application/json: {schema: {$ref: '#/components/schemas/Client'}}}}, '400': {$ref: '#/components/responses/ValidationError'}, '404': {$ref: '#/components/responses/NotFound'}}}
+    put: {tags: [Clients], summary: Replace a client, requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/ClientInput'}}}}, responses: {'200': {description: Updated, content: {application/json: {schema: {$ref: '#/components/schemas/Client'}}}}}}
+  /api/v1/clients/{clientId}/sites:
+    parameters: [{$ref: '#/components/parameters/ClientId'}]
+    get: {tags: [Sites], summary: List client sites, responses: {'200': {description: Sites, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/Site'}}}}}}}
+    post: {tags: [Sites], summary: Create a site, requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/SiteInput'}}}}, responses: {'201': {description: Created, content: {application/json: {schema: {$ref: '#/components/schemas/Site'}}}}, '400': {$ref: '#/components/responses/ValidationError'}}}
+  /api/v1/sites/{siteId}:
+    parameters: [{$ref: '#/components/parameters/SiteId'}]
+    get: {tags: [Sites], summary: Get a site, responses: {'200': {description: Site, content: {application/json: {schema: {$ref: '#/components/schemas/Site'}}}}, '404': {$ref: '#/components/responses/NotFound'}}}
+    patch: {tags: [Sites], summary: Update a site, requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/SiteInput'}}}}, responses: {'200': {description: Updated, content: {application/json: {schema: {$ref: '#/components/schemas/Site'}}}}, '400': {$ref: '#/components/responses/ValidationError'}}}
+    put: {tags: [Sites], summary: Replace a site, requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/SiteInput'}}}}, responses: {'200': {description: Updated, content: {application/json: {schema: {$ref: '#/components/schemas/Site'}}}}}}
+  /api/v1/sites/{siteId}/equipment:
+    parameters: [{$ref: '#/components/parameters/SiteId'}]
+    get: {tags: [Equipment], summary: List site equipment, responses: {'200': {description: Equipment, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/Equipment'}}}}}}}
+    post: {tags: [Equipment], summary: Create equipment, requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/EquipmentInput'}}}}, responses: {'201': {description: Created, content: {application/json: {schema: {$ref: '#/components/schemas/Equipment'}}}}, '400': {$ref: '#/components/responses/ValidationError'}, '409': {$ref: '#/components/responses/Conflict'}}}
+  /api/v1/equipment/{equipmentId}:
+    parameters: [{$ref: '#/components/parameters/EquipmentId'}]
+    get: {tags: [Equipment], summary: Get equipment, responses: {'200': {description: Equipment, content: {application/json: {schema: {$ref: '#/components/schemas/Equipment'}}}}, '404': {$ref: '#/components/responses/NotFound'}}}
+    patch: {tags: [Equipment], summary: Update equipment, requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/EquipmentInput'}}}}, responses: {'200': {description: Updated, content: {application/json: {schema: {$ref: '#/components/schemas/Equipment'}}}}, '400': {$ref: '#/components/responses/ValidationError'}, '409': {$ref: '#/components/responses/Conflict'}}}
+    put: {tags: [Equipment], summary: Replace equipment, requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/EquipmentInput'}}}}, responses: {'200': {description: Updated, content: {application/json: {schema: {$ref: '#/components/schemas/Equipment'}}}}}}
+  /api/v1/auth/logout:
+    post: {tags: [Auth], summary: Revoke the current refresh token, responses: {'204': {description: Logged out}, '401': {$ref: '#/components/responses/Unauthorized'}}}
+  /api/v1/auth/me:
+    get: {tags: [Auth], summary: Get the authenticated user, responses: {'200': {description: Authenticated user, content: {application/json: {schema: {$ref: '#/components/schemas/User'}}}}, '401': {$ref: '#/components/responses/Unauthorized'}}}
+  /api/v1/users/{userId}/status:
+    parameters: [{$ref: '#/components/parameters/UserId'}]
+    patch: {tags: [Users], summary: Change a user's status, requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/StatusChangeRequest'}}}}, responses: {'200': {description: Updated user, content: {application/json: {schema: {$ref: '#/components/schemas/User'}}}}, '409': {$ref: '#/components/responses/Conflict'}}}
+  /api/v1/users/{userId}/reset-password:
+    parameters: [{$ref: '#/components/parameters/UserId'}]
+    post: {tags: [Users], summary: Reset a user's password, requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/PasswordResetRequest'}}}}, responses: {'204': {description: Password reset}, '400': {$ref: '#/components/responses/ValidationError'}}}
+  /api/v1/clients/{clientId}/status:
+    parameters: [{$ref: '#/components/parameters/ClientId'}]
+    patch: {tags: [Clients], summary: Change a client's status, requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/StatusChangeRequest'}}}}, responses: {'200': {description: Updated client, content: {application/json: {schema: {$ref: '#/components/schemas/Client'}}}}}}
+  /api/v1/sites:
+    get: {tags: [Sites], summary: List sites, responses: {'200': {description: Sites, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/Site'}}}}}}}
+    post: {tags: [Sites], summary: Create a site, requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/SiteInput'}}}}, responses: {'201': {description: Created, content: {application/json: {schema: {$ref: '#/components/schemas/Site'}}}}}}
+  /api/v1/sites/{siteId}/status:
+    parameters: [{$ref: '#/components/parameters/SiteId'}]
+    patch: {tags: [Sites], summary: Change a site's status, requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/StatusChangeRequest'}}}}, responses: {'200': {description: Updated site, content: {application/json: {schema: {$ref: '#/components/schemas/Site'}}}}}}
+  /api/v1/equipment:
+    get: {tags: [Equipment], summary: List equipment, responses: {'200': {description: Equipment, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/Equipment'}}}}}}}
+    post: {tags: [Equipment], summary: Create equipment, requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/EquipmentInput'}}}}, responses: {'201': {description: Created, content: {application/json: {schema: {$ref: '#/components/schemas/Equipment'}}}}}}
+  /api/v1/equipment/by-qr/{qrCode}:
+    parameters: [{name: qrCode, in: path, required: true, schema: {type: string}}]
+    get: {tags: [Equipment], summary: Find equipment by QR code, responses: {'200': {description: Equipment, content: {application/json: {schema: {$ref: '#/components/schemas/Equipment'}}}}, '404': {$ref: '#/components/responses/NotFound'}}}
+  /api/v1/equipment/{equipmentId}/status:
+    parameters: [{$ref: '#/components/parameters/EquipmentId'}]
+    patch: {tags: [Equipment], summary: Change equipment status, requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/StatusChangeRequest'}}}}, responses: {'200': {description: Updated equipment, content: {application/json: {schema: {$ref: '#/components/schemas/Equipment'}}}}}}
+components:
+  securitySchemes: {bearerAuth: {type: http, scheme: bearer, bearerFormat: JWT}}
+  parameters:
+    Page: {name: page, in: query, schema: {type: integer, minimum: 0, default: 0}}
+    Size: {name: size, in: query, schema: {type: integer, minimum: 1, maximum: 100, default: 20}}
+    UserId: {name: userId, in: path, required: true, schema: {type: string, format: uuid}}
+    ClientId: {name: clientId, in: path, required: true, schema: {type: string, format: uuid}}
+    SiteId: {name: siteId, in: path, required: true, schema: {type: string, format: uuid}}
+    EquipmentId: {name: equipmentId, in: path, required: true, schema: {type: string, format: uuid}}
+  responses:
+    ValidationError: {description: Validation failed, content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}, example: {timestamp: '2026-10-22T21:00:00Z', status: 400, code: VALIDATION_ERROR, message: Validation failed, path: /api/v1/users, requestId: 16f1d8fd-6e42-489f-a919-4a09fd84dd5a, fieldErrors: [{field: email, message: must be a well-formed email address}]}}}}
+    Unauthorized: {description: Authentication required, content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}}
+    Forbidden: {description: Insufficient permission, content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}}
+    NotFound: {description: Resource not found, content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}}
+    Conflict: {description: Conflicting resource, content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}}
+  schemas:
+    ErrorResponse: {type: object, required: [timestamp, status, code, message, path], properties: {timestamp: {type: string, format: date-time}, status: {type: integer}, code: {type: string}, message: {type: string}, path: {type: string}, requestId: {type: string}, fieldErrors: {type: array, items: {$ref: '#/components/schemas/FieldError'}}}}
+    FieldError: {type: object, required: [field, message], properties: {field: {type: string}, message: {type: string}}}
+    LoginRequest: {type: object, required: [email, password], properties: {email: {type: string, format: email}, password: {type: string, format: password, writeOnly: true, minLength: 8}}}
+    RefreshTokenRequest: {type: object, required: [refreshToken], properties: {refreshToken: {type: string, writeOnly: true}}}
+    TokenResponse: {type: object, required: [accessToken, refreshToken, expiresIn, user], properties: {accessToken: {type: string, readOnly: true}, refreshToken: {type: string, readOnly: true}, tokenType: {type: string, example: Bearer}, expiresIn: {type: integer, example: 900}, user: {$ref: '#/components/schemas/User'}}}
+    UserRole: {type: string, enum: [ADMIN, SUPERVISOR, TECHNICIAN, CLIENT_VIEWER]}
+    UserStatus: {type: string, enum: [ACTIVE, INACTIVE, BLOCKED]}
+    ActiveStatus: {type: string, enum: [ACTIVE, INACTIVE]}
+    EquipmentStatus: {type: string, enum: [ACTIVE, INACTIVE, DECOMMISSIONED]}
+    User: {type: object, required: [id, name, email, role, status, version], properties: {id: {type: string, format: uuid}, name: {type: string}, email: {type: string, format: email}, role: {$ref: '#/components/schemas/UserRole'}, status: {$ref: '#/components/schemas/UserStatus'}, phone: {type: string, nullable: true}, version: {type: integer, minimum: 0}, createdAt: {type: string, format: date-time}, updatedAt: {type: string, format: date-time}}}
+    CreateUserRequest: {type: object, required: [name, email, password, role], properties: {name: {type: string}, email: {type: string, format: email}, password: {type: string, format: password, writeOnly: true}, role: {$ref: '#/components/schemas/UserRole'}, phone: {type: string}}}
+    UpdateUserRequest: {type: object, required: [version], properties: {name: {type: string}, role: {$ref: '#/components/schemas/UserRole'}, status: {$ref: '#/components/schemas/UserStatus'}, phone: {type: string, nullable: true}, version: {type: integer, minimum: 0}}}
+    Client: {type: object, required: [id, name, status, version], properties: {id: {type: string, format: uuid}, name: {type: string}, legalName: {type: string, nullable: true}, document: {type: string, nullable: true}, email: {type: string, format: email, nullable: true}, phone: {type: string, nullable: true}, status: {$ref: '#/components/schemas/ActiveStatus'}, version: {type: integer}, createdAt: {type: string, format: date-time}, updatedAt: {type: string, format: date-time}}}
+    ClientInput: {type: object, required: [name, version], properties: {name: {type: string}, legalName: {type: string}, document: {type: string}, email: {type: string, format: email}, phone: {type: string}, status: {$ref: '#/components/schemas/ActiveStatus'}, version: {type: integer}}}
+    Site: {type: object, required: [id, clientId, name, status, version], properties: {id: {type: string, format: uuid}, clientId: {type: string, format: uuid}, name: {type: string}, description: {type: string, nullable: true}, city: {type: string, nullable: true}, state: {type: string, nullable: true}, status: {$ref: '#/components/schemas/ActiveStatus'}, version: {type: integer}, createdAt: {type: string, format: date-time}, updatedAt: {type: string, format: date-time}}}
+    SiteInput: {type: object, required: [name, version], properties: {name: {type: string}, description: {type: string}, city: {type: string}, state: {type: string}, status: {$ref: '#/components/schemas/ActiveStatus'}, version: {type: integer}}}
+    Equipment: {type: object, required: [id, siteId, name, qrCode, status, version], properties: {id: {type: string, format: uuid}, siteId: {type: string, format: uuid}, name: {type: string}, assetNumber: {type: string, nullable: true}, serialNumber: {type: string, nullable: true}, qrCode: {type: string}, status: {$ref: '#/components/schemas/EquipmentStatus'}, version: {type: integer}, createdAt: {type: string, format: date-time}, updatedAt: {type: string, format: date-time}}}
+    EquipmentInput: {type: object, required: [name, qrCode, version], properties: {name: {type: string}, assetNumber: {type: string}, serialNumber: {type: string}, qrCode: {type: string}, status: {$ref: '#/components/schemas/EquipmentStatus'}, version: {type: integer}}}
+    StatusChangeRequest: {type: object, required: [status, version], properties: {status: {type: string}, version: {type: integer, minimum: 0}}}
+    PasswordResetRequest: {type: object, required: [newPassword, version], properties: {newPassword: {type: string, format: password, writeOnly: true, minLength: 8}, version: {type: integer, minimum: 0}}}
+    PageMeta: {type: object, required: [page, size, totalElements, totalPages], properties: {page: {type: integer}, size: {type: integer}, totalElements: {type: integer}, totalPages: {type: integer}}}
+    UserPage: {type: object, properties: {items: {type: array, items: {$ref: '#/components/schemas/User'}}, page: {$ref: '#/components/schemas/PageMeta'}}}
+    ClientPage: {type: object, properties: {items: {type: array, items: {$ref: '#/components/schemas/Client'}}, page: {$ref: '#/components/schemas/PageMeta'}}}

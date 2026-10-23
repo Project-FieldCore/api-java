@@ -27,7 +27,7 @@ public class FieldOpsSecurityProperties {
   }
 
   public static class Jwt {
-    private String secret = "change-me-dev-only";
+    private String secret;
     private Duration accessTtl = Duration.ofMinutes(15);
     private Duration refreshTtl = Duration.ofDays(7);
 
