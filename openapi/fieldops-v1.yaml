@@ -102,7 +102,7 @@ components:
     FieldError: {type: object, required: [field, message], properties: {field: {type: string}, message: {type: string}}}
     LoginRequest: {type: object, required: [email, password], properties: {email: {type: string, format: email}, password: {type: string, format: password, writeOnly: true, minLength: 8}}}
     RefreshTokenRequest: {type: object, required: [refreshToken], properties: {refreshToken: {type: string, writeOnly: true}}}
-    TokenResponse: {type: object, required: [accessToken, refreshToken, tokenType, expiresIn], properties: {accessToken: {type: string, readOnly: true}, refreshToken: {type: string, readOnly: true}, tokenType: {type: string, example: Bearer}, expiresIn: {type: integer, example: 900}}}
+    TokenResponse: {type: object, required: [accessToken, refreshToken, expiresIn, user], properties: {accessToken: {type: string, readOnly: true}, refreshToken: {type: string, readOnly: true}, tokenType: {type: string, example: Bearer}, expiresIn: {type: integer, example: 900}, user: {$ref: '#/components/schemas/User'}}}
     UserRole: {type: string, enum: [ADMIN, SUPERVISOR, TECHNICIAN, CLIENT_VIEWER]}
     UserStatus: {type: string, enum: [ACTIVE, INACTIVE, BLOCKED]}
     ActiveStatus: {type: string, enum: [ACTIVE, INACTIVE]}
