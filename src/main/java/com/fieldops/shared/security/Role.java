@@ -3,5 +3,6 @@ package com.fieldops.shared.security;
 public enum Role {
   TECHNICIAN,
   SUPERVISOR,
-  ADMIN
+  ADMIN,
+  CLIENT_VIEWER
 }
