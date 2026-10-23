@@ -21,7 +21,7 @@ spring:
 fieldops:
   security:
     jwt:
-      secret: change-me-dev-only
+      secret: ${JWT_SECRET:}
       access-ttl: 15m
       refresh-ttl: 7d
     cors:
