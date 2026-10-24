@@ -10,6 +10,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.access.prepost.PreAuthorize;
 import com.fieldops.shared.security.FieldOpsUserPrincipal;
 
 @RestController
@@ -29,9 +30,11 @@ public class AuthController {
   }
 
   @PostMapping("/logout")
+  @PreAuthorize("isAuthenticated()")
   public void logout(@Valid @RequestBody RefreshRequest body) { auth.logout(body.refreshToken()); }
 
   @GetMapping("/me")
+  @PreAuthorize("isAuthenticated()")
   public AuthService.Profile me(@AuthenticationPrincipal FieldOpsUserPrincipal principal) {
     return auth.profile(principal.userId());
   }
