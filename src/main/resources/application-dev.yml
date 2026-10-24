@@ -32,5 +32,8 @@ fieldops:
 
 logging:
   level:
-    com.fieldops: DEBUG
+    root: INFO
+    com.fieldops: INFO
+    org.springframework.web: INFO
+    org.springframework.jdbc: INFO
     org.springframework.security: INFO
