@@ -1,6 +1,7 @@
 package com.fieldops.shared.security;
 
 import com.fieldops.auth.AuthService;
+import com.fieldops.shared.error.ApiException;
 import io.jsonwebtoken.JwtException;
 import java.util.Set;
 
@@ -16,10 +17,7 @@ import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.filter.OncePerRequestFilter;
 
-/**
- * Sprint 1 skeleton: reads Bearer header but does not authenticate yet.
- * Protected routes remain unauthenticated until Sprint 2 token validation.
- */
+/** Validates bearer JWTs and exposes the active user to protected routes. */
 @Component
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
   private final AuthService auth;
@@ -36,7 +34,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         var principal = new FieldOpsUserPrincipal(user.id(), Set.of(Role.valueOf(user.role())), Set.of());
         var authentication = new UsernamePasswordAuthenticationToken(principal, null, Set.of(new SimpleGrantedAuthority("ROLE_" + user.role())));
         SecurityContextHolder.getContext().setAuthentication(authentication);
-      } catch (JwtException | IllegalArgumentException ignored) {
+      } catch (JwtException | IllegalArgumentException | ApiException ignored) {
         // The entry point emits the standardized 401 response for protected routes.
       }
     }

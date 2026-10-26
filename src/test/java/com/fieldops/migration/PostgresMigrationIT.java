@@ -36,6 +36,7 @@ class PostgresMigrationIT {
   void appliesMigrationsAndEnforcesRequiredUniqueConstraints() throws Exception {
     assertThat(tableExists("app_user")).isTrue();
     assertThat(tableExists("inspection_response")).isTrue();
+    assertThat(columnExists("refresh_token", "family_id")).isTrue();
     assertThat(constraintExists("uk_app_user_email")).isTrue();
     assertThat(constraintExists("uk_equipment_qr_code")).isTrue();
     assertThat(constraintExists("uk_inspection_template_version")).isTrue();
@@ -68,6 +69,20 @@ class PostgresMigrationIT {
       try (var result = statement.executeQuery()) {
         result.next();
         return result.getString(1) != null;
+      }
+    }
+  }
+
+  private boolean columnExists(String tableName, String columnName) throws SQLException {
+    try (var connection = dataSource.getConnection();
+        var statement = connection.prepareStatement(
+            "SELECT EXISTS (SELECT 1 FROM information_schema.columns "
+                + "WHERE table_schema = 'public' AND table_name = ? AND column_name = ?)")) {
+      statement.setString(1, tableName);
+      statement.setString(2, columnName);
+      try (var result = statement.executeQuery()) {
+        result.next();
+        return result.getBoolean(1);
       }
     }
   }
