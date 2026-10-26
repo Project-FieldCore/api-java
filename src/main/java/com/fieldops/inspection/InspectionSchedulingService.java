@@ -33,6 +33,24 @@ public class InspectionSchedulingService {
     return get(id);
   }
 
+  @Transactional
+  public Inspection assign(UUID inspectionId, AssignmentCommand command) {
+    Inspection current = get(inspectionId);
+    requireActiveTechnician(command.technicianId());
+    if (current.status() != Status.DRAFT && current.status() != Status.ASSIGNED) {
+      throw new ApiException(HttpStatus.CONFLICT, "INSPECTION_NOT_ASSIGNABLE", "Inspection cannot be assigned in its current state");
+    }
+    int updated = jdbc.update("update inspection set technician_id=?,status='ASSIGNED',updated_at=current_timestamp,version=version+1 where id=? and version=? and status in ('DRAFT','ASSIGNED')",
+        command.technicianId(), inspectionId, command.version());
+    if (updated == 0) throw new ApiException(HttpStatus.CONFLICT, "VERSION_CONFLICT", "Inspection was modified by another request");
+    return get(inspectionId);
+  }
+
+  public List<Inspection> assignedTo(UUID technicianId) {
+    return jdbc.query("select * from inspection where technician_id=? and status in ('ASSIGNED','IN_PROGRESS') order by scheduled_for,id",
+        (rs, row) -> mapInspection(rs), technicianId);
+  }
+
   private PublishedVersion requirePublishedVersion(UUID versionId) {
     List<PublishedVersion> versions = jdbc.query("select id,title_snapshot from inspection_template_version where id=? and published_at is not null and active_for_new_inspections=true", (rs, row) -> new PublishedVersion(UUID.fromString(rs.getString("id")), rs.getString("title_snapshot")), versionId);
     if (versions.isEmpty()) throw new ApiException(HttpStatus.CONFLICT, "TEMPLATE_VERSION_NOT_PUBLISHED", "Inspection requires a published template version");
@@ -71,13 +89,18 @@ public class InspectionSchedulingService {
   }
 
   private Inspection get(UUID id) {
-    List<Inspection> inspections = jdbc.query("select * from inspection where id=?", (rs, row) -> new Inspection(UUID.fromString(rs.getString("id")), UUID.fromString(rs.getString("client_id")), UUID.fromString(rs.getString("site_id")), UUID.fromString(rs.getString("template_version_id")), UUID.fromString(rs.getString("technician_id")), UUID.fromString(rs.getString("supervisor_id")), rs.getString("title"), rs.getString("instructions"), Priority.valueOf(rs.getString("priority")), Status.valueOf(rs.getString("status")), rs.getTimestamp("scheduled_for").toInstant(), rs.getInt("version")), id);
+    List<Inspection> inspections = jdbc.query("select * from inspection where id=?", (rs, row) -> mapInspection(rs), id);
     return inspections.getFirst();
+  }
+
+  private static Inspection mapInspection(java.sql.ResultSet rs) throws java.sql.SQLException {
+    return new Inspection(UUID.fromString(rs.getString("id")), UUID.fromString(rs.getString("client_id")), UUID.fromString(rs.getString("site_id")), UUID.fromString(rs.getString("template_version_id")), UUID.fromString(rs.getString("technician_id")), UUID.fromString(rs.getString("supervisor_id")), rs.getString("title"), rs.getString("instructions"), Priority.valueOf(rs.getString("priority")), Status.valueOf(rs.getString("status")), rs.getTimestamp("scheduled_for").toInstant(), rs.getInt("version"));
   }
 
   public enum Status { DRAFT, ASSIGNED, IN_PROGRESS, SUBMITTED, UNDER_REVIEW, APPROVED, REJECTED, CANCELED }
   public enum Priority { LOW, MEDIUM, HIGH, CRITICAL }
   public record ScheduleCommand(UUID templateVersionId, UUID clientId, UUID siteId, UUID technicianId, OffsetDateTime scheduledFor, String title, String instructions, Priority priority) {}
+  public record AssignmentCommand(UUID technicianId, int version) {}
   public record Inspection(UUID id, UUID clientId, UUID siteId, UUID templateVersionId, UUID technicianId, UUID supervisorId, String title, String instructions, Priority priority, Status status, Instant scheduledFor, int version) {}
   private record PublishedVersion(UUID id, String title) {}
   private record SnapshotSource(UUID sourceItemId, String sectionTitle, String sectionDescription, int sectionOrder, String code, String title, String description, String responseType, boolean required, String optionsJson, int itemOrder) {}
