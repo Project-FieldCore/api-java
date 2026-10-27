@@ -1,6 +1,7 @@
 package com.fieldops.site;
 
 import com.fieldops.shared.error.ApiException;
+import com.fieldops.shared.pagination.PageQuery;
 import java.math.BigDecimal;
 import java.sql.Timestamp;
 import java.time.Instant;
@@ -22,9 +23,16 @@ public class SiteService {
     return jdbc.query("select * from inspection_site where client_id=? order by name,id", (rs, row) -> map(rs), clientId);
   }
 
-  public List<Site> list() {
-    return jdbc.query("select * from inspection_site order by name,id", (rs, row) -> map(rs));
+  public Page list(int page, int size, String sort, String query, Status status, UUID clientId) {
+    String where = " where (? is null or lower(name) like lower(?) or lower(city) like lower(?) or lower(state) like lower(?)) and (? is null or status=?) and (? is null or client_id=?)";
+    String match = query == null || query.isBlank() ? null : "%" + query.trim() + "%";
+    Object[] filter = {match, match, match, match, status == null ? null : status.name(), status == null ? null : status.name(), clientId, clientId};
+    long total = jdbc.queryForObject("select count(*) from inspection_site" + where, Long.class, filter);
+    List<Site> items = jdbc.query("select * from inspection_site" + where + " order by " + PageQuery.orderBy(sort, java.util.Map.of("name", "name", "city", "city", "createdAt", "created_at")) + " limit ? offset ?", (rs, row) -> map(rs), concat(filter, size, page * size));
+    return new Page(items, new PageMeta(page, size, total, (int) Math.ceil((double) total / size)));
   }
+
+  private static Object[] concat(Object[] values, Object... tail) { Object[] result = java.util.Arrays.copyOf(values, values.length + tail.length); System.arraycopy(tail, 0, result, values.length, tail.length); return result; }
 
   public Site get(UUID id) {
     List<Site> sites = jdbc.query("select * from inspection_site where id=?", (rs, row) -> map(rs), id);
@@ -103,4 +111,6 @@ public class SiteService {
   public record Site(UUID id, UUID clientId, String name, String description, String addressLine, String city, String state,
                      String postalCode, BigDecimal latitude, BigDecimal longitude, String contactName, String contactPhone,
                      Status status, Instant createdAt, Instant updatedAt, int version) {}
+  public record Page(List<Site> items, PageMeta page) {}
+  public record PageMeta(int page, int size, long totalElements, int totalPages) {}
 }

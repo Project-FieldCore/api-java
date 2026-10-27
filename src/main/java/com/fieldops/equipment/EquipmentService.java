@@ -1,6 +1,7 @@
 package com.fieldops.equipment;
 
 import com.fieldops.shared.error.ApiException;
+import com.fieldops.shared.pagination.PageQuery;
 import java.sql.Date;
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -20,9 +21,16 @@ public class EquipmentService {
 
   public EquipmentService(JdbcTemplate jdbc) { this.jdbc = jdbc; }
 
-  public List<Equipment> list() {
-    return jdbc.query("select * from equipment order by name,id", (rs, row) -> map(rs));
+  public Page list(int page, int size, String sort, String query, Status status, UUID siteId) {
+    String where = " where (? is null or lower(name) like lower(?) or lower(qr_code) like lower(?) or lower(asset_number) like lower(?) or lower(serial_number) like lower(?)) and (? is null or status=?) and (? is null or site_id=?)";
+    String match = query == null || query.isBlank() ? null : "%" + query.trim() + "%";
+    Object[] filter = {match, match, match, match, match, status == null ? null : status.name(), status == null ? null : status.name(), siteId, siteId};
+    long total = jdbc.queryForObject("select count(*) from equipment" + where, Long.class, filter);
+    List<Equipment> items = jdbc.query("select * from equipment" + where + " order by " + PageQuery.orderBy(sort, java.util.Map.of("name", "name", "qrCode", "qr_code", "createdAt", "created_at")) + " limit ? offset ?", (rs, row) -> map(rs), concat(filter, size, page * size));
+    return new Page(items, new PageMeta(page, size, total, (int) Math.ceil((double) total / size)));
   }
+
+  private static Object[] concat(Object[] values, Object... tail) { Object[] result = java.util.Arrays.copyOf(values, values.length + tail.length); System.arraycopy(tail, 0, result, values.length, tail.length); return result; }
 
   public List<Equipment> listBySite(UUID siteId) {
     requireSite(siteId);
@@ -110,4 +118,6 @@ public class EquipmentService {
   public record Equipment(UUID id, UUID siteId, String name, String qrCode, String assetNumber, String serialNumber,
                           String manufacturer, String model, String description, Status status, LocalDate installedAt,
                           Instant createdAt, Instant updatedAt, int version) {}
+  public record Page(List<Equipment> items, PageMeta page) {}
+  public record PageMeta(int page, int size, long totalElements, int totalPages) {}
 }

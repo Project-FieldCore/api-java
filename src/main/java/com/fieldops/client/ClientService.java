@@ -1,6 +1,7 @@
 package com.fieldops.client;
 
 import com.fieldops.shared.error.ApiException;
+import com.fieldops.shared.pagination.PageQuery;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
@@ -18,12 +19,18 @@ public class ClientService {
 
   public ClientService(JdbcTemplate jdbc) { this.jdbc = jdbc; }
 
-  public Page list(int page, int size) {
-    long total = jdbc.queryForObject("select count(*) from client", Long.class);
+  public Page list(int page, int size, String sort, String query, Status status) {
+    String where = " where (? is null or lower(name) like lower(?) or lower(legal_name) like lower(?) or lower(document) like lower(?) or lower(email) like lower(?)) and (? is null or status=?)";
+    String match = query == null || query.isBlank() ? null : "%" + query.trim() + "%";
+    Object[] filter = {match, match, match, match, match, status == null ? null : status.name(), status == null ? null : status.name()};
+    long total = jdbc.queryForObject("select count(*) from client" + where, Long.class, filter);
     List<Client> items = jdbc.query(
-        "select * from client order by name,id limit ? offset ?", (rs, row) -> map(rs), size, page * size);
+        "select * from client" + where + " order by " + PageQuery.orderBy(sort, java.util.Map.of("name", "name", "createdAt", "created_at")) + " limit ? offset ?",
+        (rs, row) -> map(rs), concat(filter, size, page * size));
     return new Page(items, new PageMeta(page, size, total, (int) Math.ceil((double) total / size)));
   }
+
+  private static Object[] concat(Object[] values, Object... tail) { Object[] result = java.util.Arrays.copyOf(values, values.length + tail.length); System.arraycopy(tail, 0, result, values.length, tail.length); return result; }
 
   public Client get(UUID id) {
     List<Client> clients = jdbc.query("select * from client where id=?", (rs, row) -> map(rs), id);
