@@ -21,6 +21,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
@@ -32,7 +33,12 @@ public class EquipmentController {
   public EquipmentController(EquipmentService equipment) { this.equipment = equipment; }
 
   @GetMapping("/equipment")
-  public List<EquipmentService.Equipment> list() { return equipment.list(); }
+  public EquipmentService.Page list(@RequestParam(defaultValue = "0") @Min(0) int page,
+      @RequestParam(defaultValue = "20") @Min(1) @jakarta.validation.constraints.Max(100) int size,
+      @RequestParam(defaultValue = "name,asc") String sort, @RequestParam(required = false) String q,
+      @RequestParam(required = false) EquipmentService.Status status, @RequestParam(required = false) UUID siteId) {
+    return equipment.list(page, size, sort, q, status, siteId);
+  }
 
   @GetMapping("/sites/{siteId}/equipment")
   public List<EquipmentService.Equipment> listBySite(@PathVariable UUID siteId) { return equipment.listBySite(siteId); }

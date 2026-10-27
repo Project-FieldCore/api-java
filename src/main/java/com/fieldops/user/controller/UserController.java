@@ -34,8 +34,12 @@ public class UserController {
   @GetMapping
   public UserService.Page list(
       @RequestParam(defaultValue = "0") @Min(0) int page,
-      @RequestParam(defaultValue = "20") @Min(1) @Max(100) int size) {
-    return users.list(page, size);
+      @RequestParam(defaultValue = "20") @Min(1) @Max(100) int size,
+      @RequestParam(defaultValue = "name,asc") String sort,
+      @RequestParam(required = false) String q,
+      @RequestParam(required = false) UserService.Status status,
+      @RequestParam(required = false) Role role) {
+    return users.list(page, size, sort, q, status, role);
   }
 
   @GetMapping("/{userId}")
