@@ -1,7 +1,8 @@
 # CI — api-java
 
 GitHub Actions (`.github/workflows/ci.yml`) runs on every pull request and on
-pushes to `develop` / `main`.
+pushes to `develop` / `main`. Actions are pinned to commit SHAs; the workflow
+uses least-privilege `permissions: contents: read`.
 
 ## What it runs
 
