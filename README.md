@@ -15,6 +15,15 @@ Especificação do produto, gestão e convenções (fonte canônica):
 - JDK **25**
 - Maven 3.6.3+ (ou `./mvnw`)
 
+## CI
+
+Pull requests and pushes to `develop`/`main` run `./mvnw -B verify` (JDK 25).
+Details: [docs/CI.md](docs/CI.md).
+
+```bash
+./mvnw -B verify
+```
+
 ## Executar (dev)
 
 ```bash
