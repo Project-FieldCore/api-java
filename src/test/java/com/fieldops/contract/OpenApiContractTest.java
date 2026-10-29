@@ -17,12 +17,19 @@ class OpenApiContractTest {
     String contract = Files.readString(CONTRACT);
 
     assertTrue(contract.contains("/api/v1/auth/login:"));
+    assertTrue(contract.contains("/api/v1/auth/logout:"));
+    assertTrue(contract.contains("/api/v1/auth/me:"));
     assertTrue(contract.contains("/api/v1/users:"));
     assertTrue(contract.contains("/api/v1/clients:"));
     assertTrue(contract.contains("/api/v1/sites:"));
     assertTrue(contract.contains("/api/v1/equipment:"));
     assertTrue(contract.contains("ErrorResponse:"));
     assertTrue(contract.contains("fieldErrors:"));
+    assertTrue(contract.contains("AuthProfile:"));
+    assertTrue(contract.contains("RefreshTokenRequest"));
+    assertTrue(contract.contains("'403': {$ref: '#/components/responses/Forbidden'}"));
+    assertTrue(contract.contains("'204': {description: Logged out}"));
+    assertTrue(contract.contains("#/components/schemas/AuthProfile"));
   }
 
   @Test
