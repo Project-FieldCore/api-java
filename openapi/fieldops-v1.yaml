@@ -12,7 +12,7 @@ paths:
       security: []
       summary: Authenticate a user
       requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/LoginRequest'}, example: {email: ana.silva@example.com, password: example-only-password}}}}
-      responses: {'200': {description: Authenticated, content: {application/json: {schema: {$ref: '#/components/schemas/TokenResponse'}}}}, '400': {$ref: '#/components/responses/ValidationError'}, '401': {$ref: '#/components/responses/Unauthorized'}}
+      responses: {'200': {description: Authenticated, content: {application/json: {schema: {$ref: '#/components/schemas/TokenResponse'}}}}, '400': {$ref: '#/components/responses/ValidationError'}, '401': {$ref: '#/components/responses/Unauthorized'}, '403': {$ref: '#/components/responses/Forbidden'}}
   /api/v1/auth/refresh:
     post:
       tags: [Auth]
@@ -56,9 +56,13 @@ paths:
     patch: {tags: [Equipment], summary: Update equipment, requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/EquipmentInput'}}}}, responses: {'200': {description: Updated, content: {application/json: {schema: {$ref: '#/components/schemas/Equipment'}}}}, '400': {$ref: '#/components/responses/ValidationError'}, '409': {$ref: '#/components/responses/Conflict'}}}
     put: {tags: [Equipment], summary: Replace equipment, requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/EquipmentInput'}}}}, responses: {'200': {description: Updated, content: {application/json: {schema: {$ref: '#/components/schemas/Equipment'}}}}}}
   /api/v1/auth/logout:
-    post: {tags: [Auth], summary: Revoke the current refresh token, responses: {'204': {description: Logged out}, '401': {$ref: '#/components/responses/Unauthorized'}}}
+    post:
+      tags: [Auth]
+      summary: Revoke the current refresh token family
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/RefreshTokenRequest'}}}}
+      responses: {'204': {description: Logged out}, '400': {$ref: '#/components/responses/ValidationError'}, '401': {$ref: '#/components/responses/Unauthorized'}}
   /api/v1/auth/me:
-    get: {tags: [Auth], summary: Get the authenticated user, responses: {'200': {description: Authenticated user, content: {application/json: {schema: {$ref: '#/components/schemas/User'}}}}, '401': {$ref: '#/components/responses/Unauthorized'}}}
+    get: {tags: [Auth], summary: Get the authenticated user profile, responses: {'200': {description: Authenticated profile, content: {application/json: {schema: {$ref: '#/components/schemas/AuthProfile'}}}}, '401': {$ref: '#/components/responses/Unauthorized'}}}
   /api/v1/users/{userId}/status:
     parameters: [{$ref: '#/components/parameters/UserId'}]
     patch: {tags: [Users], summary: Change a user's status, requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/StatusChangeRequest'}}}}, responses: {'200': {description: Updated user, content: {application/json: {schema: {$ref: '#/components/schemas/User'}}}}, '409': {$ref: '#/components/responses/Conflict'}}}
@@ -113,7 +117,8 @@ components:
     FieldError: {type: object, required: [field, message], properties: {field: {type: string}, message: {type: string}}}
     LoginRequest: {type: object, required: [email, password], properties: {email: {type: string, format: email}, password: {type: string, format: password, writeOnly: true, minLength: 8}}}
     RefreshTokenRequest: {type: object, required: [refreshToken], properties: {refreshToken: {type: string, writeOnly: true}}}
-    TokenResponse: {type: object, required: [accessToken, refreshToken, expiresIn, user], properties: {accessToken: {type: string, readOnly: true}, refreshToken: {type: string, readOnly: true}, tokenType: {type: string, example: Bearer}, expiresIn: {type: integer, example: 900}, user: {$ref: '#/components/schemas/User'}}}
+    TokenResponse: {type: object, required: [accessToken, refreshToken, expiresIn, user], properties: {accessToken: {type: string, readOnly: true}, refreshToken: {type: string, readOnly: true}, tokenType: {type: string, example: Bearer}, expiresIn: {type: integer, example: 900}, user: {$ref: '#/components/schemas/AuthProfile'}}}
+    AuthProfile: {type: object, required: [id, name, email, role], properties: {id: {type: string, format: uuid}, name: {type: string}, email: {type: string, format: email}, role: {$ref: '#/components/schemas/UserRole'}}}
     UserRole: {type: string, enum: [ADMIN, SUPERVISOR, TECHNICIAN, CLIENT_VIEWER]}
     UserStatus: {type: string, enum: [ACTIVE, INACTIVE, BLOCKED]}
     ActiveStatus: {type: string, enum: [ACTIVE, INACTIVE]}

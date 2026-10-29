@@ -1,5 +1,6 @@
 package com.fieldops.user;
 
+import com.fieldops.auth.AuthService;
 import com.fieldops.shared.error.ApiException;
 import com.fieldops.shared.security.Role;
 import java.sql.Timestamp;
@@ -16,10 +17,12 @@ import org.springframework.transaction.annotation.Transactional;
 public class UserService {
   private final JdbcTemplate jdbc;
   private final PasswordEncoder passwords;
+  private final AuthService auth;
 
-  public UserService(JdbcTemplate jdbc, PasswordEncoder passwords) {
+  public UserService(JdbcTemplate jdbc, PasswordEncoder passwords, AuthService auth) {
     this.jdbc = jdbc;
     this.passwords = passwords;
+    this.auth = auth;
   }
 
   public Page list(int page, int size) {
@@ -72,6 +75,11 @@ public class UserService {
         "update app_user set status=?,updated_at=current_timestamp,version=version+1 where id=? and version=?",
         command.status().name(), id, command.version());
     if (updated == 0) throw versionConflict();
+    if (command.status() == Status.INACTIVE || command.status() == Status.BLOCKED) {
+      // RN-008: deactivate/block must kill refresh sessions. Future password-reset must call
+      // AuthService.revokeAllSessions(userId) the same way.
+      auth.revokeAllSessions(id);
+    }
     return get(id);
   }
 

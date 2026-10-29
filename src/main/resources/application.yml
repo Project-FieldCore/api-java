@@ -25,6 +25,12 @@ management:
     health:
       show-details: when_authorized
 
+fieldops:
+  security:
+    jwt:
+      # Required at startup (≥32 chars). Prefer JWT_SECRET env; never commit real secrets.
+      secret: ${JWT_SECRET:}
+
 logging:
   pattern:
     level: "%5p [${spring.application.name:},%X{requestId:-}]"

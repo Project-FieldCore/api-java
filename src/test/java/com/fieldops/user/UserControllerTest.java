@@ -16,10 +16,12 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 
 @SpringBootTest
 @AutoConfigureMockMvc
+@TestPropertySource(properties = "fieldops.security.jwt.secret=test-signing-key-for-auth-integration-only-32")
 class UserControllerTest {
   @Autowired MockMvc mvc;
   @Autowired JdbcTemplate jdbc;
@@ -93,6 +95,52 @@ class UserControllerTest {
     mvc.perform(get("/api/v1/users").with(user("technician").roles("TECHNICIAN")))
         .andExpect(status().isForbidden())
         .andExpect(jsonPath("$.code").value("ACCESS_DENIED"));
+  }
+
+  @Test
+  void deactivatingUserRevokesRefreshSessions() throws Exception {
+    UUID id = insertUser("revoke@example.com", "ACTIVE", 0);
+    String login =
+        mvc.perform(
+                post("/api/v1/auth/login")
+                    .contentType("application/json")
+                    .content(
+                        "{\"email\":\"revoke@example.com\",\"password\":\"safe-password\"}"))
+            .andExpect(status().isOk())
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+    String refresh = json.readTree(login).get("refreshToken").asText();
+
+    mvc.perform(
+            patch("/api/v1/users/{userId}/status", id)
+                .with(admin())
+                .contentType("application/json")
+                .content("{\"status\":\"INACTIVE\",\"version\":0}"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.status").value("INACTIVE"));
+
+    mvc.perform(
+            post("/api/v1/auth/refresh")
+                .contentType("application/json")
+                .content("{\"refreshToken\":\"" + refresh + "\"}"))
+        .andExpect(status().isUnauthorized())
+        .andExpect(jsonPath("$.code").value("INVALID_CREDENTIALS"));
+
+    mvc.perform(
+            patch("/api/v1/users/{userId}/status", id)
+                .with(admin())
+                .contentType("application/json")
+                .content("{\"status\":\"ACTIVE\",\"version\":1}"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.status").value("ACTIVE"));
+
+    mvc.perform(
+            post("/api/v1/auth/refresh")
+                .contentType("application/json")
+                .content("{\"refreshToken\":\"" + refresh + "\"}"))
+        .andExpect(status().isUnauthorized())
+        .andExpect(jsonPath("$.code").value("INVALID_CREDENTIALS"));
   }
 
   private UUID insertUser(String email, String status, int version) {

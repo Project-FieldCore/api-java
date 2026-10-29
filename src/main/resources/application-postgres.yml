@@ -18,6 +18,7 @@ spring:
 fieldops:
   security:
     jwt:
+      # JWT_SECRET is mandatory for postgres/runtime profiles (fail-fast if missing/short).
       secret: ${JWT_SECRET}
       access-ttl: 15m
       refresh-ttl: 7d
