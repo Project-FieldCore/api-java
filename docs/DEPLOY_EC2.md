@@ -223,7 +223,18 @@ Amazon Linux 2023 → usuário **`ec2-user`**. Ubuntu → **`ubuntu`**.
 ssh -i /caminho/labsuser.pem ec2-user@<IP_PUBLICO_POSTGRES>
 ```
 
-#### C.3 Instalar e iniciar Postgres (Amazon Linux 2023)
+#### C.3 Instalar e iniciar Postgres
+
+**Ubuntu** (prompt `ubuntu@…` — Learner Lab costuma ser este):
+
+```bash
+sudo apt-get update
+sudo apt-get install -y postgresql postgresql-contrib
+sudo systemctl enable --now postgresql
+sudo systemctl status postgresql --no-pager
+```
+
+**Amazon Linux 2023** (prompt `ec2-user@…`):
 
 ```bash
 sudo dnf update -y
@@ -233,31 +244,30 @@ sudo systemctl enable --now postgresql
 sudo systemctl status postgresql --no-pager
 ```
 
-Ubuntu (se a AMI for Ubuntu):
-
-```bash
-sudo apt-get update
-sudo apt-get install -y postgresql postgresql-contrib
-sudo systemctl enable --now postgresql
-```
-
 #### C.4 Escutar na rede privada + liberar a API
 
-Descubra o IP privado da **API** (instância API → Networking → Private IPv4), ex. `172.31.x.x`.
+O SG já restringe a porta 5432. Ajuste o Postgres para aceitar conexões da VPC.
+
+**Ubuntu:**
 
 ```bash
-# Escutar em todas as interfaces (o SG continua restringindo quem entra)
-sudo sed -i "s/#listen_addresses = 'localhost'/listen_addresses = '*'/" /var/lib/pgsql/data/postgresql.conf
-# Amazon Linux 15: caminho acima. Se o arquivo não existir:
-#   sudo find /var -name postgresql.conf 2>/dev/null
+# versão instalada, ex. 16
+PG_VER=$(ls /etc/postgresql)
+CONF="/etc/postgresql/${PG_VER}/main/postgresql.conf"
+HBA="/etc/postgresql/${PG_VER}/main/pg_hba.conf"
 
-# Autenticação: troque 172.31.0.0/16 pelo IP/32 da API se quiser mais restrito
-echo 'host    all    all    172.31.0.0/16    scram-sha-256' | sudo tee -a /var/lib/pgsql/data/pg_hba.conf
-
+sudo sed -i "s/^#\?listen_addresses.*/listen_addresses = '*'/" "$CONF"
+echo 'host    all    all    172.31.0.0/16    scram-sha-256' | sudo tee -a "$HBA"
 sudo systemctl restart postgresql
 ```
 
-Ubuntu: conf em `/etc/postgresql/*/main/postgresql.conf` e `pg_hba.conf`; depois `sudo systemctl restart postgresql`.
+**Amazon Linux 2023:**
+
+```bash
+sudo sed -i "s/#listen_addresses = 'localhost'/listen_addresses = '*'/" /var/lib/pgsql/data/postgresql.conf
+echo 'host    all    all    172.31.0.0/16    scram-sha-256' | sudo tee -a /var/lib/pgsql/data/pg_hba.conf
+sudo systemctl restart postgresql
+```
 
 #### C.5 User, database e senha
 
