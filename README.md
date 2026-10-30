@@ -16,10 +16,12 @@ Especificação do produto, gestão e convenções (fonte canônica):
 - JDK **25**
 - Maven 3.6.3+ (ou `./mvnw`)
 
-## CI
+## CI / CD
 
-Pull requests and pushes to `develop`/`main` run `./mvnw -B verify` (JDK 25).
-Details: [docs/CI.md](docs/CI.md).
+- **PR validation** (`develop` / `main`): `./mvnw -B verify` — [docs/CI.md](docs/CI.md)
+- **Deploy DEV** (push em `develop`): EC2 + systemd + Nginx — [docs/DEPLOY_EC2.md](docs/DEPLOY_EC2.md)
+- **Secrets / Environments**: [docs/SECRETS.md](docs/SECRETS.md)
+- **Deploy PRD**: manual (`workflow_dispatch`), outra EC2
 
 ```bash
 ./mvnw -B verify

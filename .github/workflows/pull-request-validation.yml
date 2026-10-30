@@ -1,25 +1,24 @@
-name: CI
+name: "0. [Auto] Pull Request Validation"
 
 on:
   pull_request:
-  push:
     branches:
       - develop
       - main
+  workflow_dispatch:
+
+concurrency:
+  group: pr-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
 
-concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
-
 jobs:
-  build:
-    name: Build and test
+  pull-request-validation:
+    name: Pull Request Validation
     runs-on: ubuntu-latest
     timeout-minutes: 20
-
     steps:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
