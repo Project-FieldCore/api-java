@@ -43,6 +43,7 @@ jobs:
 
       - name: Maven package
         # Tests already ran on the PR that merged into develop (required status check).
+        # postgresql driver is runtime-scoped in pom (needed for SPRING_PROFILES_ACTIVE=postgres).
         run: ./mvnw -B clean package -DskipTests
 
       - name: Stage publish artifact
