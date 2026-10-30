@@ -163,18 +163,20 @@ Detalhes e valores: [SECRETS.md](SECRETS.md).
 
 ---
 
-## 9. Banco — ainda indefinido
+## 9. Banco — escolha uma opção
 
-A aplicação no EC2 usa o profile **`postgres`**. Escolha **uma** opção; preencha `DATABASE_*` de acordo.
+A aplicação no EC2 usa o profile **`postgres`**. Preencha `DATABASE_*` de acordo.
+Flyway aplica `classpath:db/migration` na subida da API.
 
-### Opção A — Postgres na mesma EC2
+### Opção A — Postgres na mesma EC2 da API
 
 ```bash
+sudo apt-get install -y postgresql postgresql-contrib   # Ubuntu
+# ou: sudo dnf install -y postgresql15-server postgresql15 && sudo postgresql-setup --initdb  # Amazon Linux
+
 sudo -u postgres psql -c "CREATE USER fieldops WITH PASSWORD 'CHANGE_ME';"
 sudo -u postgres psql -c "CREATE DATABASE fieldops OWNER fieldops;"
 ```
-
-Sugestão de secret:
 
 ```text
 DATABASE_URL=jdbc:postgresql://127.0.0.1:5432/fieldops
@@ -182,11 +184,11 @@ DATABASE_USER=fieldops
 DATABASE_PASSWORD=CHANGE_ME
 ```
 
-Garanta que o serviço Postgres inicia antes da API (`After=postgresql.service` na unit, se quiser).
+Opcional na unit da API: `After=postgresql.service`.
 
 ### Opção B — Amazon RDS (PostgreSQL)
 
-1. Crie um RDS PostgreSQL 16 (ou compatível) na mesma VPC / com SG permitindo a EC2 na porta 5432.
+1. RDS PostgreSQL 16 (ou compatível) na mesma VPC; SG do RDS liberando **5432** só do SG da EC2 da API.
 2. Secrets:
 
 ```text
@@ -195,7 +197,108 @@ DATABASE_USER=fieldops
 DATABASE_PASSWORD=<rds-password>
 ```
 
-Flyway roda na subida da API (`classpath:db/migration`).
+### Opção C — EC2 dedicada só para Postgres (recomendado no Learner Lab)
+
+Duas instâncias na **mesma VPC/AZ**: API (`dev-fieldops-api`) + DB (`fieldops-postgres-dev`).
+Sem Docker. Sem RDS.
+
+#### C.1 Rede / Security Group (antes ou no launch)
+
+Na EC2 do **Postgres**, SG dedicado (ex. `fieldops-postgres-dev`):
+
+| Inbound | Source |
+| ------- | ------ |
+| TCP **22** (SSH) | My IP (ou padrão do lab) |
+| TCP **5432** | **Security group da EC2 da API** (ex. `launch-wizard-1` / `sg-…`) — **não** `0.0.0.0/0` |
+
+Outbound: default (all).
+
+Anote o **IPv4 privado** da EC2 do Postgres (EC2 → instância → Networking). Esse IP vai no `DATABASE_URL`.
+
+#### C.2 SSH na EC2 do Postgres
+
+Amazon Linux 2023 → usuário **`ec2-user`**. Ubuntu → **`ubuntu`**.
+
+```bash
+ssh -i /caminho/labsuser.pem ec2-user@<IP_PUBLICO_POSTGRES>
+```
+
+#### C.3 Instalar e iniciar Postgres (Amazon Linux 2023)
+
+```bash
+sudo dnf update -y
+sudo dnf install -y postgresql15-server postgresql15
+sudo postgresql-setup --initdb
+sudo systemctl enable --now postgresql
+sudo systemctl status postgresql --no-pager
+```
+
+Ubuntu (se a AMI for Ubuntu):
+
+```bash
+sudo apt-get update
+sudo apt-get install -y postgresql postgresql-contrib
+sudo systemctl enable --now postgresql
+```
+
+#### C.4 Escutar na rede privada + liberar a API
+
+Descubra o IP privado da **API** (instância API → Networking → Private IPv4), ex. `172.31.x.x`.
+
+```bash
+# Escutar em todas as interfaces (o SG continua restringindo quem entra)
+sudo sed -i "s/#listen_addresses = 'localhost'/listen_addresses = '*'/" /var/lib/pgsql/data/postgresql.conf
+# Amazon Linux 15: caminho acima. Se o arquivo não existir:
+#   sudo find /var -name postgresql.conf 2>/dev/null
+
+# Autenticação: troque 172.31.0.0/16 pelo IP/32 da API se quiser mais restrito
+echo 'host    all    all    172.31.0.0/16    scram-sha-256' | sudo tee -a /var/lib/pgsql/data/pg_hba.conf
+
+sudo systemctl restart postgresql
+```
+
+Ubuntu: conf em `/etc/postgresql/*/main/postgresql.conf` e `pg_hba.conf`; depois `sudo systemctl restart postgresql`.
+
+#### C.5 User, database e senha
+
+Use a **mesma** senha do secret GitHub `DATABASE_PASSWORD` (Environment `development`).
+
+```bash
+sudo -u postgres psql <<'SQL'
+CREATE USER fieldops WITH PASSWORD 'COLE_AQUI_O_DATABASE_PASSWORD';
+CREATE DATABASE fieldops OWNER fieldops;
+GRANT ALL PRIVILEGES ON DATABASE fieldops TO fieldops;
+SQL
+```
+
+PostgreSQL 15+: permissões no schema `public`:
+
+```bash
+sudo -u postgres psql -d fieldops -c 'GRANT ALL ON SCHEMA public TO fieldops;'
+```
+
+#### C.6 Secret no GitHub (IP privado do Postgres)
+
+```bash
+gh secret set DATABASE_URL --env development -R Project-FieldCore/api-java \
+  -b 'jdbc:postgresql://<IP_PRIVADO_POSTGRES>:5432/fieldops'
+# DATABASE_USER=fieldops e DATABASE_PASSWORD já devem existir no Environment development
+```
+
+#### C.7 Teste a partir da EC2 da API
+
+```bash
+# Na EC2 da API (instalar client se precisar)
+sudo dnf install -y postgresql15   # ou: sudo apt-get install -y postgresql-client
+psql "postgresql://fieldops:SENHA@<IP_PRIVADO_POSTGRES>:5432/fieldops" -c 'select 1;'
+```
+
+Se falhar: confira SG (5432 ← SG da API), `listen_addresses`, `pg_hba.conf` e `systemctl status postgresql` na EC2 do DB.
+
+#### C.8 Learner Lab / IPs
+
+- Prefira **IP privado** no `DATABASE_URL` (estável em stop/start da mesma instância).
+- `AWS_HOST` (API) continua sendo o IP **público** (ou elástico) para o SSH do Actions — atualize se o lab mudar o público.
 
 ---
 
