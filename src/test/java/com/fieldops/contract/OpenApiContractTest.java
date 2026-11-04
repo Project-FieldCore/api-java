@@ -1,5 +1,6 @@
 package com.fieldops.contract;
 
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -20,6 +21,7 @@ class OpenApiContractTest {
     assertTrue(contract.contains("/api/v1/auth/logout:"));
     assertTrue(contract.contains("/api/v1/auth/me:"));
     assertTrue(contract.contains("/api/v1/users:"));
+    assertTrue(contract.contains("/api/v1/users/{userId}/status:"));
     assertTrue(contract.contains("/api/v1/clients:"));
     assertTrue(contract.contains("/api/v1/sites:"));
     assertTrue(contract.contains("/api/v1/equipment:"));
@@ -30,6 +32,8 @@ class OpenApiContractTest {
     assertTrue(contract.contains("'403': {$ref: '#/components/responses/Forbidden'}"));
     assertTrue(contract.contains("'204': {description: Logged out}"));
     assertTrue(contract.contains("#/components/schemas/AuthProfile"));
+    assertFalse(contract.contains("reset-password"));
+    assertFalse(contract.contains("PasswordResetRequest"));
   }
 
   @Test
