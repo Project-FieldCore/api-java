@@ -38,8 +38,18 @@ class InspectionTemplateControllerTest {
         .andExpect(jsonPath("$.title").value("Daily Safety"))
         .andExpect(jsonPath("$.category").value("SAFETY"))
         .andExpect(jsonPath("$.version").value(0))
+        .andExpect(jsonPath("$.currentVersion").value(1))
+        .andExpect(jsonPath("$.draftVersionId").isNotEmpty())
+        .andExpect(jsonPath("$.latestVersionId").isNotEmpty())
         .andReturn().getResponse().getContentAsString();
     UUID id = UUID.fromString(json.readTree(response).get("id").asText());
+    UUID draftVersionId = UUID.fromString(json.readTree(response).get("draftVersionId").asText());
+
+    mvc.perform(post("/api/v1/template-versions/{templateVersionId}/sections", draftVersionId).with(supervisor())
+            .contentType("application/json")
+            .content("{\"title\":\"General\",\"displayOrder\":0}"))
+        .andExpect(status().isCreated())
+        .andExpect(jsonPath("$.templateVersionId").value(draftVersionId.toString()));
 
     mvc.perform(patch("/api/v1/inspection-templates/{templateId}", id).with(supervisor()).contentType("application/json")
             .content("{\"title\":\"Weekly Safety\",\"category\":\"OPERATIONS\",\"version\":0}"))
@@ -47,10 +57,13 @@ class InspectionTemplateControllerTest {
         .andExpect(jsonPath("$.status").value("DRAFT"))
         .andExpect(jsonPath("$.title").value("Weekly Safety"))
         .andExpect(jsonPath("$.category").value("OPERATIONS"))
-        .andExpect(jsonPath("$.version").value(1));
+        .andExpect(jsonPath("$.version").value(1))
+        .andExpect(jsonPath("$.draftVersionId").value(draftVersionId.toString()));
 
     mvc.perform(get("/api/v1/inspection-templates/{templateId}", id).with(supervisor()))
-        .andExpect(status().isOk()).andExpect(jsonPath("$.title").value("Weekly Safety"));
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.title").value("Weekly Safety"))
+        .andExpect(jsonPath("$.draftVersionId").value(draftVersionId.toString()));
   }
 
   @Test
