@@ -12,7 +12,7 @@ paths:
       security: []
       summary: Authenticate a user
       requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/LoginRequest'}, example: {email: ana.silva@example.com, password: example-only-password}}}}
-      responses: {'200': {description: Authenticated, content: {application/json: {schema: {$ref: '#/components/schemas/TokenResponse'}}}}, '400': {$ref: '#/components/responses/ValidationError'}, '401': {$ref: '#/components/responses/Unauthorized'}}
+      responses: {'200': {description: Authenticated, content: {application/json: {schema: {$ref: '#/components/schemas/TokenResponse'}}}}, '400': {$ref: '#/components/responses/ValidationError'}, '401': {$ref: '#/components/responses/Unauthorized'}, '403': {$ref: '#/components/responses/Forbidden'}}
   /api/v1/auth/refresh:
     post:
       tags: [Auth]
@@ -22,13 +22,13 @@ paths:
       requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/RefreshTokenRequest'}}}}
       responses: {'200': {description: Refreshed, content: {application/json: {schema: {$ref: '#/components/schemas/TokenResponse'}}}}, '400': {$ref: '#/components/responses/ValidationError'}, '401': {$ref: '#/components/responses/Unauthorized'}}
   /api/v1/users:
-    get: {tags: [Users], summary: List users, parameters: [{$ref: '#/components/parameters/Page'}, {$ref: '#/components/parameters/Size'}], responses: {'200': {description: Users, content: {application/json: {schema: {$ref: '#/components/schemas/UserPage'}}}}, '401': {$ref: '#/components/responses/Unauthorized'}, '403': {$ref: '#/components/responses/Forbidden'}}}
-    post: {tags: [Users], summary: Create a user, requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/CreateUserRequest'}}}}, responses: {'201': {description: Created, content: {application/json: {schema: {$ref: '#/components/schemas/User'}}}}, '400': {$ref: '#/components/responses/ValidationError'}, '409': {$ref: '#/components/responses/Conflict'}}}
+    get: {tags: [Users], summary: List users, description: Requires the ADMIN role., parameters: [{$ref: '#/components/parameters/Page'}, {$ref: '#/components/parameters/Size'}], responses: {'200': {description: Users, content: {application/json: {schema: {$ref: '#/components/schemas/UserPage'}}}}, '401': {$ref: '#/components/responses/Unauthorized'}, '403': {$ref: '#/components/responses/Forbidden'}}}
+    post: {tags: [Users], summary: Create a user, description: Requires the ADMIN role., requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/CreateUserRequest'}}}}, responses: {'201': {description: Created, content: {application/json: {schema: {$ref: '#/components/schemas/User'}}}}, '400': {$ref: '#/components/responses/ValidationError'}, '401': {$ref: '#/components/responses/Unauthorized'}, '403': {$ref: '#/components/responses/Forbidden'}, '409': {$ref: '#/components/responses/Conflict'}}}
   /api/v1/users/{userId}:
     parameters: [{$ref: '#/components/parameters/UserId'}]
-    get: {tags: [Users], summary: Get a user, responses: {'200': {description: User, content: {application/json: {schema: {$ref: '#/components/schemas/User'}}}}, '404': {$ref: '#/components/responses/NotFound'}}}
-    patch: {tags: [Users], summary: Update a user, requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/UpdateUserRequest'}}}}, responses: {'200': {description: Updated, content: {application/json: {schema: {$ref: '#/components/schemas/User'}}}}, '400': {$ref: '#/components/responses/ValidationError'}, '401': {$ref: '#/components/responses/Unauthorized'}, '403': {$ref: '#/components/responses/Forbidden'}, '404': {$ref: '#/components/responses/NotFound'}, '409': {$ref: '#/components/responses/Conflict'}}}
-    put: {tags: [Users], summary: Replace a user, requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/UpdateUserRequest'}}}}, responses: {'200': {description: Updated, content: {application/json: {schema: {$ref: '#/components/schemas/User'}}}}, '400': {$ref: '#/components/responses/ValidationError'}, '401': {$ref: '#/components/responses/Unauthorized'}, '403': {$ref: '#/components/responses/Forbidden'}, '404': {$ref: '#/components/responses/NotFound'}, '409': {$ref: '#/components/responses/Conflict'}}}
+    get: {tags: [Users], summary: Get a user, description: Requires the ADMIN role., responses: {'200': {description: User, content: {application/json: {schema: {$ref: '#/components/schemas/User'}}}}, '401': {$ref: '#/components/responses/Unauthorized'}, '403': {$ref: '#/components/responses/Forbidden'}, '404': {$ref: '#/components/responses/NotFound'}}}
+    patch: {tags: [Users], summary: Update a user, description: Requires the ADMIN role., requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/UpdateUserRequest'}}}}, responses: {'200': {description: Updated, content: {application/json: {schema: {$ref: '#/components/schemas/User'}}}}, '400': {$ref: '#/components/responses/ValidationError'}, '401': {$ref: '#/components/responses/Unauthorized'}, '403': {$ref: '#/components/responses/Forbidden'}, '404': {$ref: '#/components/responses/NotFound'}, '409': {$ref: '#/components/responses/Conflict'}}}
+    put: {tags: [Users], summary: Replace a user, description: Requires the ADMIN role., requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/UpdateUserRequest'}}}}, responses: {'200': {description: Updated, content: {application/json: {schema: {$ref: '#/components/schemas/User'}}}}, '400': {$ref: '#/components/responses/ValidationError'}, '401': {$ref: '#/components/responses/Unauthorized'}, '403': {$ref: '#/components/responses/Forbidden'}, '404': {$ref: '#/components/responses/NotFound'}, '409': {$ref: '#/components/responses/Conflict'}}}
   /api/v1/clients:
     get: {tags: [Clients], summary: List clients, responses: {'200': {description: Clients, content: {application/json: {schema: {$ref: '#/components/schemas/ClientPage'}}}}}}
     post: {tags: [Clients], summary: Create a client, requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/ClientInput'}}}}, responses: {'201': {description: Created, content: {application/json: {schema: {$ref: '#/components/schemas/Client'}}}}, '400': {$ref: '#/components/responses/ValidationError'}, '409': {$ref: '#/components/responses/Conflict'}}}
@@ -56,15 +56,16 @@ paths:
     patch: {tags: [Equipment], summary: Update equipment, requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/EquipmentInput'}}}}, responses: {'200': {description: Updated, content: {application/json: {schema: {$ref: '#/components/schemas/Equipment'}}}}, '400': {$ref: '#/components/responses/ValidationError'}, '409': {$ref: '#/components/responses/Conflict'}}}
     put: {tags: [Equipment], summary: Replace equipment, requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/EquipmentInput'}}}}, responses: {'200': {description: Updated, content: {application/json: {schema: {$ref: '#/components/schemas/Equipment'}}}}}}
   /api/v1/auth/logout:
-    post: {tags: [Auth], summary: Revoke the current refresh token, responses: {'204': {description: Logged out}, '401': {$ref: '#/components/responses/Unauthorized'}}}
+    post:
+      tags: [Auth]
+      summary: Revoke the current refresh token family
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/RefreshTokenRequest'}}}}
+      responses: {'204': {description: Logged out}, '400': {$ref: '#/components/responses/ValidationError'}, '401': {$ref: '#/components/responses/Unauthorized'}}
   /api/v1/auth/me:
-    get: {tags: [Auth], summary: Get the authenticated user, responses: {'200': {description: Authenticated user, content: {application/json: {schema: {$ref: '#/components/schemas/User'}}}}, '401': {$ref: '#/components/responses/Unauthorized'}}}
+    get: {tags: [Auth], summary: Get the authenticated user profile, responses: {'200': {description: Authenticated profile, content: {application/json: {schema: {$ref: '#/components/schemas/AuthProfile'}}}}, '401': {$ref: '#/components/responses/Unauthorized'}}}
   /api/v1/users/{userId}/status:
     parameters: [{$ref: '#/components/parameters/UserId'}]
-    patch: {tags: [Users], summary: Change a user's status, requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/StatusChangeRequest'}}}}, responses: {'200': {description: Updated user, content: {application/json: {schema: {$ref: '#/components/schemas/User'}}}}, '409': {$ref: '#/components/responses/Conflict'}}}
-  /api/v1/users/{userId}/reset-password:
-    parameters: [{$ref: '#/components/parameters/UserId'}]
-    post: {tags: [Users], summary: Reset a user's password, requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/PasswordResetRequest'}}}}, responses: {'204': {description: Password reset}, '400': {$ref: '#/components/responses/ValidationError'}}}
+    patch: {tags: [Users], summary: Change a user's status, description: Requires the ADMIN role., requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/StatusChangeRequest'}}}}, responses: {'200': {description: Updated user, content: {application/json: {schema: {$ref: '#/components/schemas/User'}}}}, '401': {$ref: '#/components/responses/Unauthorized'}, '403': {$ref: '#/components/responses/Forbidden'}, '409': {$ref: '#/components/responses/Conflict'}}}
   /api/v1/clients/{clientId}/status:
     parameters: [{$ref: '#/components/parameters/ClientId'}]
     patch: {tags: [Clients], summary: Change a client's status, requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/StatusChangeRequest'}}}}, responses: {'200': {description: Updated client, content: {application/json: {schema: {$ref: '#/components/schemas/Client'}}}}}}
@@ -120,7 +121,8 @@ components:
     FieldError: {type: object, required: [field, message], properties: {field: {type: string}, message: {type: string}}}
     LoginRequest: {type: object, required: [email, password], properties: {email: {type: string, format: email}, password: {type: string, format: password, writeOnly: true, minLength: 8}}}
     RefreshTokenRequest: {type: object, required: [refreshToken], properties: {refreshToken: {type: string, writeOnly: true}}}
-    TokenResponse: {type: object, required: [accessToken, refreshToken, expiresIn, user], properties: {accessToken: {type: string, readOnly: true}, refreshToken: {type: string, readOnly: true}, tokenType: {type: string, example: Bearer}, expiresIn: {type: integer, example: 900}, user: {$ref: '#/components/schemas/User'}}}
+    TokenResponse: {type: object, required: [accessToken, refreshToken, expiresIn, user], properties: {accessToken: {type: string, readOnly: true}, refreshToken: {type: string, readOnly: true}, tokenType: {type: string, example: Bearer}, expiresIn: {type: integer, example: 900}, user: {$ref: '#/components/schemas/AuthProfile'}}}
+    AuthProfile: {type: object, required: [id, name, email, role], properties: {id: {type: string, format: uuid}, name: {type: string}, email: {type: string, format: email}, role: {$ref: '#/components/schemas/UserRole'}}}
     UserRole: {type: string, enum: [ADMIN, SUPERVISOR, TECHNICIAN, CLIENT_VIEWER]}
     UserStatus: {type: string, enum: [ACTIVE, INACTIVE, BLOCKED]}
     ActiveStatus: {type: string, enum: [ACTIVE, INACTIVE]}
@@ -143,7 +145,6 @@ components:
     ReorderTemplateSectionsRequest: {type: object, required: [sections], properties: {sections: {type: array, minItems: 1, items: {type: object, required: [sectionId, displayOrder], properties: {sectionId: {type: string, format: uuid}, displayOrder: {type: integer, minimum: 0}}}}}}
     QrCodeAssignment: {type: object, required: [qrCode, version], properties: {qrCode: {type: string, minLength: 1, maxLength: 255}, version: {type: integer, minimum: 0}}}
     StatusChangeRequest: {type: object, required: [status, version], properties: {status: {type: string}, version: {type: integer, minimum: 0}}}
-    PasswordResetRequest: {type: object, required: [newPassword, version], properties: {newPassword: {type: string, format: password, writeOnly: true, minLength: 8}, version: {type: integer, minimum: 0}}}
     PageMeta: {type: object, required: [page, size, totalElements, totalPages], properties: {page: {type: integer}, size: {type: integer}, totalElements: {type: integer}, totalPages: {type: integer}}}
     UserPage: {type: object, properties: {items: {type: array, items: {$ref: '#/components/schemas/User'}}, page: {$ref: '#/components/schemas/PageMeta'}}}
     ClientPage: {type: object, properties: {items: {type: array, items: {$ref: '#/components/schemas/Client'}}, page: {$ref: '#/components/schemas/PageMeta'}}}
