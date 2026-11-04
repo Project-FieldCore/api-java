@@ -24,7 +24,10 @@ class OpenApiContractTest {
     assertTrue(contract.contains("/api/v1/users/{userId}/status:"));
     assertTrue(contract.contains("Requires the ADMIN role."));
     assertTrue(contract.contains("/api/v1/clients:"));
+    assertTrue(contract.contains("/api/v1/clients/{clientId}/sites:"));
     assertTrue(contract.contains("/api/v1/sites:"));
+    assertTrue(contract.contains("/api/v1/sites/{siteId}/status:"));
+    assertTrue(contract.contains("SiteCreateInput:"));
     assertTrue(contract.contains("/api/v1/equipment:"));
     assertTrue(contract.contains("ErrorResponse:"));
     assertTrue(contract.contains("fieldErrors:"));
