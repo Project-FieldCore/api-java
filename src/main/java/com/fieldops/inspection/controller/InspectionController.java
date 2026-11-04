@@ -4,6 +4,8 @@ import com.fieldops.inspection.InspectionSchedulingService;
 import com.fieldops.shared.security.FieldOpsUserPrincipal;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Future;
+import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 import java.time.OffsetDateTime;
@@ -43,6 +45,14 @@ public class InspectionController {
     return inspections.assign(inspectionId, new InspectionSchedulingService.AssignmentCommand(body.technicianId(), body.version()));
   }
 
+  @PatchMapping("/{inspectionId}/cancel")
+  @PreAuthorize("hasAnyRole('ADMIN','SUPERVISOR')")
+  public InspectionSchedulingService.Inspection cancel(
+      @PathVariable UUID inspectionId, @Valid @RequestBody CancelInspectionRequest body,
+      @AuthenticationPrincipal FieldOpsUserPrincipal principal) {
+    return inspections.cancel(inspectionId, new InspectionSchedulingService.CancellationCommand(body.reason(), body.version()), principal.userId());
+  }
+
   @GetMapping("/my")
   @PreAuthorize("hasRole('TECHNICIAN')")
   public List<InspectionSchedulingService.Inspection> myAssignments(
@@ -55,4 +65,5 @@ public class InspectionController {
                                           @Size(max = 255) String title, @Size(max = 2000) String instructions,
                                           InspectionSchedulingService.Priority priority) {}
   public record AssignTechnicianRequest(@NotNull UUID technicianId, @NotNull @jakarta.validation.constraints.Min(0) Integer version) {}
+  public record CancelInspectionRequest(@NotBlank @Size(max = 1000) String reason, @NotNull @Min(0) Integer version) {}
 }

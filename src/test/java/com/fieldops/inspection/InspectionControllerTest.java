@@ -169,6 +169,49 @@ class InspectionControllerTest {
         .andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value("ACCESS_DENIED"));
   }
 
+  @Test
+  void supervisorCancelsInspectionWithReasonAndAuditData() throws Exception {
+    UUID supervisor = insertUser("SUPERVISOR", "ACTIVE");
+    UUID technician = insertUser("TECHNICIAN", "ACTIVE");
+    UUID client = insertClient(); UUID site = insertSite(client); UUID templateVersion = insertPublishedVersion();
+    UUID inspection = insertInspection(templateVersion, client, site, technician, supervisor, "ASSIGNED", 0);
+    String reason = "Acesso ao local foi suspenso pelo cliente.";
+
+    mvc.perform(patch("/api/v1/inspections/{inspectionId}/cancel", inspection).with(principal(supervisor, "SUPERVISOR"))
+            .contentType("application/json").content("{\"reason\":\"" + reason + "\",\"version\":0}"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.status").value("CANCELED"))
+        .andExpect(jsonPath("$.canceledBy").value(supervisor.toString()))
+        .andExpect(jsonPath("$.canceledReason").value(reason))
+        .andExpect(jsonPath("$.canceledAt").exists())
+        .andExpect(jsonPath("$.version").value(1));
+
+    org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject("select status from inspection where id=?", String.class, inspection))
+        .isEqualTo("CANCELED");
+    org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject("select canceled_by from inspection where id=?", UUID.class, inspection))
+        .isEqualTo(supervisor);
+    org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject("select canceled_reason from inspection where id=?", String.class, inspection))
+        .isEqualTo(reason);
+    org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject("select canceled_at from inspection where id=?", java.sql.Timestamp.class, inspection))
+        .isNotNull();
+  }
+
+  @Test
+  void approvedInspectionCannotBeCanceledAndInvalidReasonUsesStandardError() throws Exception {
+    UUID supervisor = insertUser("SUPERVISOR", "ACTIVE");
+    UUID technician = insertUser("TECHNICIAN", "ACTIVE");
+    UUID client = insertClient(); UUID site = insertSite(client); UUID templateVersion = insertPublishedVersion();
+    UUID approved = insertInspection(templateVersion, client, site, technician, supervisor, "APPROVED", 0);
+    UUID assigned = insertInspection(templateVersion, client, site, technician, supervisor, "ASSIGNED", 0);
+
+    mvc.perform(patch("/api/v1/inspections/{inspectionId}/cancel", approved).with(principal(supervisor, "SUPERVISOR"))
+            .contentType("application/json").content("{\"reason\":\"Cancelamento\",\"version\":0}"))
+        .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("INSPECTION_CANNOT_BE_CANCELED"));
+    mvc.perform(patch("/api/v1/inspections/{inspectionId}/cancel", assigned).with(principal(supervisor, "SUPERVISOR"))
+            .contentType("application/json").content("{\"reason\":\"   \",\"version\":0}"))
+        .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+  }
+
   private String body(UUID version, UUID client, UUID site, UUID technician) {
     return "{\"templateVersionId\":\"" + version + "\",\"clientId\":\"" + client + "\",\"siteId\":\"" + site + "\",\"technicianId\":\"" + technician + "\",\"scheduledFor\":\"" + OffsetDateTime.now().plusDays(1) + "\"}";
   }
