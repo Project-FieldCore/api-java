@@ -4,6 +4,9 @@ Documents the authorization enforced for endpoints **currently implemented on
 `develop`** (and stacked master-data PRs). Authorization is server-side
 (Spring Security + `@PreAuthorize`); client-side role checks are never sufficient.
 
+Inspection execution endpoints may land in sibling PRs — keep this matrix in
+sync when those controllers merge.
+
 | Endpoint group | ADMIN | SUPERVISOR | TECHNICIAN | CLIENT_VIEWER | Anonymous |
 | --- | --- | --- | --- | --- | --- |
 | `POST /api/v1/auth/login` and `POST /api/v1/auth/refresh` | Allowed | Allowed | Allowed | Allowed | Allowed |
@@ -22,5 +25,10 @@ Documents the authorization enforced for endpoints **currently implemented on
 - Missing resources for an authorized caller return domain 404 codes
   (`USER_NOT_FOUND`, `CLIENT_NOT_FOUND`, `SITE_NOT_FOUND`, `EQUIPMENT_NOT_FOUND`,
   `INSPECTION_TEMPLATE_NOT_FOUND`).
-- Site creation is only available through `/api/v1/clients/{clientId}/sites`.
-- User management remains ADMIN-only (PBI-0011 / matriz doc. 05).
+- Site creation is only available through `/api/v1/clients/{clientId}/sites`. The
+  server checks that the client exists and the database foreign key makes a site
+  without a client impossible. A site's client association is immutable through
+  the site update endpoints.
+- User management remains ADMIN-only (PBI-0011 / matriz doc. 05). This matrix
+  (PBI-0012 / RN-003) covers profile checks on every protected operation that
+  exists today.
