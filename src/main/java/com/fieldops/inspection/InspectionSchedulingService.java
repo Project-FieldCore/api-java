@@ -46,6 +46,25 @@ public class InspectionSchedulingService {
     return get(inspectionId);
   }
 
+  /** RN-029/030: registra a trilha de cancelamento e nunca cancela uma inspeção aprovada. */
+  @Transactional
+  public Inspection cancel(UUID inspectionId, CancellationCommand command, UUID canceledBy) {
+    Inspection current = get(inspectionId);
+    if (current.status() == Status.APPROVED) {
+      throw new ApiException(HttpStatus.CONFLICT, "INSPECTION_CANNOT_BE_CANCELED", "Approved inspection cannot be canceled");
+    }
+    if (current.status() == Status.CANCELED) {
+      throw new ApiException(HttpStatus.CONFLICT, "INSPECTION_ALREADY_CANCELED", "Inspection is already canceled");
+    }
+    int updated = jdbc.update(
+        "update inspection set status='CANCELED',canceled_by=?,canceled_at=current_timestamp,canceled_reason=?,updated_at=current_timestamp,version=version+1 where id=? and version=? and status not in ('APPROVED','CANCELED')",
+        canceledBy, command.reason().trim(), inspectionId, command.version());
+    if (updated == 0) {
+      throw new ApiException(HttpStatus.CONFLICT, "VERSION_CONFLICT", "Inspection was modified by another request");
+    }
+    return get(inspectionId);
+  }
+
   public List<Inspection> assignedTo(UUID technicianId) {
     return jdbc.query("select * from inspection where technician_id=? and status in ('ASSIGNED','IN_PROGRESS') order by scheduled_for,id",
         (rs, row) -> mapInspection(rs), technicianId);
@@ -95,18 +114,23 @@ public class InspectionSchedulingService {
 
   private Inspection get(UUID id) {
     List<Inspection> inspections = jdbc.query("select * from inspection where id=?", (rs, row) -> mapInspection(rs), id);
+    if (inspections.isEmpty()) {
+      throw new ApiException(HttpStatus.NOT_FOUND, "INSPECTION_NOT_FOUND", "Inspection not found");
+    }
     return inspections.getFirst();
   }
 
   private static Inspection mapInspection(java.sql.ResultSet rs) throws java.sql.SQLException {
-    return new Inspection(UUID.fromString(rs.getString("id")), UUID.fromString(rs.getString("client_id")), UUID.fromString(rs.getString("site_id")), UUID.fromString(rs.getString("template_version_id")), UUID.fromString(rs.getString("technician_id")), UUID.fromString(rs.getString("supervisor_id")), rs.getString("title"), rs.getString("instructions"), Priority.valueOf(rs.getString("priority")), Status.valueOf(rs.getString("status")), rs.getTimestamp("scheduled_for").toInstant(), rs.getInt("version"));
+    Timestamp canceledAt = rs.getTimestamp("canceled_at");
+    return new Inspection(UUID.fromString(rs.getString("id")), UUID.fromString(rs.getString("client_id")), UUID.fromString(rs.getString("site_id")), UUID.fromString(rs.getString("template_version_id")), UUID.fromString(rs.getString("technician_id")), UUID.fromString(rs.getString("supervisor_id")), rs.getString("title"), rs.getString("instructions"), Priority.valueOf(rs.getString("priority")), Status.valueOf(rs.getString("status")), rs.getTimestamp("scheduled_for").toInstant(), rs.getInt("version"), rs.getObject("canceled_by", UUID.class), canceledAt == null ? null : canceledAt.toInstant(), rs.getString("canceled_reason"));
   }
 
   public enum Status { DRAFT, ASSIGNED, IN_PROGRESS, SUBMITTED, UNDER_REVIEW, APPROVED, REJECTED, CANCELED }
   public enum Priority { LOW, MEDIUM, HIGH, CRITICAL }
   public record ScheduleCommand(UUID templateVersionId, UUID clientId, UUID siteId, UUID technicianId, OffsetDateTime scheduledFor, String title, String instructions, Priority priority) {}
   public record AssignmentCommand(UUID technicianId, int version) {}
-  public record Inspection(UUID id, UUID clientId, UUID siteId, UUID templateVersionId, UUID technicianId, UUID supervisorId, String title, String instructions, Priority priority, Status status, Instant scheduledFor, int version) {}
+  public record CancellationCommand(String reason, int version) {}
+  public record Inspection(UUID id, UUID clientId, UUID siteId, UUID templateVersionId, UUID technicianId, UUID supervisorId, String title, String instructions, Priority priority, Status status, Instant scheduledFor, int version, UUID canceledBy, Instant canceledAt, String canceledReason) {}
   private record PublishedVersion(UUID id, String title) {}
   private record SnapshotSource(UUID sourceItemId, String sectionTitle, String sectionDescription, int sectionOrder, String code, String title, String description, String responseType, boolean required, boolean observationRequiredOnFailure, boolean evidenceRequiredOnFailure, String optionsJson, int itemOrder) {}
 }

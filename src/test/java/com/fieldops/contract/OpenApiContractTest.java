@@ -35,6 +35,8 @@ class OpenApiContractTest {
     assertTrue(contract.contains("InspectionPriority:"));
     assertTrue(contract.contains("scheduledFor:"));
     assertTrue(contract.contains("instructions:"));
+    assertTrue(contract.contains("/api/v1/inspections/{inspectionId}/cancel:"));
+    assertTrue(contract.contains("CancelInspectionRequest:"));
     assertTrue(contract.contains("ErrorResponse:"));
     assertTrue(contract.contains("fieldErrors:"));
     assertTrue(contract.contains("AuthProfile:"));
