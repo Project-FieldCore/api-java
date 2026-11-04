@@ -6,6 +6,7 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -34,12 +35,14 @@ public class AuthController {
   }
 
   @PostMapping("/logout")
+  @PreAuthorize("isAuthenticated()")
   @ResponseStatus(HttpStatus.NO_CONTENT)
   public void logout(@Valid @RequestBody RefreshRequest body) {
     auth.logout(body.refreshToken());
   }
 
   @GetMapping("/me")
+  @PreAuthorize("isAuthenticated()")
   public AuthService.Profile me(@AuthenticationPrincipal FieldOpsUserPrincipal principal) {
     return auth.profile(principal.userId());
   }

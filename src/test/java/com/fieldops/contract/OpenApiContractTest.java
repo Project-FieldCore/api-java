@@ -22,6 +22,7 @@ class OpenApiContractTest {
     assertTrue(contract.contains("/api/v1/auth/me:"));
     assertTrue(contract.contains("/api/v1/users:"));
     assertTrue(contract.contains("/api/v1/users/{userId}/status:"));
+    assertTrue(contract.contains("Requires the ADMIN role."));
     assertTrue(contract.contains("/api/v1/clients:"));
     assertTrue(contract.contains("/api/v1/sites:"));
     assertTrue(contract.contains("/api/v1/equipment:"));
