@@ -1,17 +1,31 @@
-# FieldCore backend
+# api-java
 
-API REST do **FieldOps / FieldCore** — Java 25 + Spring Boot 4.1.
+API REST do **FieldOps** (org FieldCore) — Java 25 + Spring Boot 4.1.
 
 ## Documentação
 
-Especificação do projeto (regras de negócio, arquitetura, contrato API, DoR/DoD):
+Especificação do produto, gestão e convenções (fonte canônica):
 
-**[`engine/projects/fieldcore/README.md`](../../engine/projects/fieldcore/README.md)** (no workspace Super)
+- Hub: [Project-FieldCore/docs](https://github.com/Project-FieldCore/docs)
+- Assistentes de IA: [AGENTS.md](https://github.com/Project-FieldCore/docs/blob/main/AGENTS.md) (canônico) · [AGENTS.md](AGENTS.md) (ponteiro local)
+- Branches, commits, issues e PRs: [BRANCH_COMMIT_CONVENTION.md](https://github.com/Project-FieldCore/docs/blob/main/PROJECT_MANAGEMENT/BRANCH_COMMIT_CONVENTION.md)
+- Backlog / DoD: Notion export em `docs` (páginas 15–18)
 
 ## Requisitos locais
 
 - JDK **25**
 - Maven 3.6.3+ (ou `./mvnw`)
+
+## CI / CD
+
+- **PR validation** (`develop` / `main`): `./mvnw -B verify` — [docs/CI.md](docs/CI.md)
+- **Deploy DEV** (push em `develop`): EC2 + systemd + Nginx — [docs/DEPLOY_EC2.md](docs/DEPLOY_EC2.md)
+- **Secrets / Environments**: [docs/SECRETS.md](docs/SECRETS.md)
+- **Deploy PRD**: manual (`workflow_dispatch`), outra EC2
+
+```bash
+./mvnw -B verify
+```
 
 ## Executar (dev)
 
@@ -50,4 +64,4 @@ Sprint 1 — **scaffold** (security skeleton, Flyway placeholder, OpenAPI skelet
 
 ## Git
 
-Segue [`engine/CONVENTIONS.md`](../../engine/CONVENTIONS.md).
+Segue a convenção do projeto em [BRANCH_COMMIT_CONVENTION.md](https://github.com/Project-FieldCore/docs/blob/main/PROJECT_MANAGEMENT/BRANCH_COMMIT_CONVENTION.md) (branches `tipo/PBI-XXXX-…`, commits `:gitmoji: type: …`, PRs `[PBI-XXXX] …`).

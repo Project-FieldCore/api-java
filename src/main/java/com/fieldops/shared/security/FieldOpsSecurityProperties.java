@@ -1,5 +1,6 @@
 package com.fieldops.shared.security;
 
+import jakarta.annotation.PostConstruct;
 import java.time.Duration;
 import java.util.List;
 import org.springframework.boot.context.properties.ConfigurationProperties;
@@ -24,6 +25,15 @@ public class FieldOpsSecurityProperties {
 
   public void setCors(Cors cors) {
     this.cors = cors;
+  }
+
+  @PostConstruct
+  void validateJwtSecret() {
+    String secret = jwt.getSecret();
+    if (secret == null || secret.length() < 32) {
+      throw new IllegalStateException(
+          "fieldops.security.jwt.secret (JWT_SECRET) must contain at least 32 characters");
+    }
   }
 
   public static class Jwt {

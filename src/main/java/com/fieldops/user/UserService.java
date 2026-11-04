@@ -1,5 +1,6 @@
 package com.fieldops.user;
 
+import com.fieldops.auth.AuthService;
 import com.fieldops.shared.error.ApiException;
 import com.fieldops.shared.security.Role;
 import java.sql.Timestamp;
@@ -16,10 +17,12 @@ import org.springframework.transaction.annotation.Transactional;
 public class UserService {
   private final JdbcTemplate jdbc;
   private final PasswordEncoder passwords;
+  private final AuthService auth;
 
-  public UserService(JdbcTemplate jdbc, PasswordEncoder passwords) {
+  public UserService(JdbcTemplate jdbc, PasswordEncoder passwords, AuthService auth) {
     this.jdbc = jdbc;
     this.passwords = passwords;
+    this.auth = auth;
   }
 
   public Page list(int page, int size) {
@@ -54,12 +57,14 @@ public class UserService {
   public User update(UUID id, UpdateCommand command) {
     User current = get(id);
     if (command.email() != null && emailExists(command.email(), id)) throw emailConflict();
+    Role nextRole = command.role() == null ? current.role() : command.role();
+    ensureRemainingActiveAdmin(current, nextRole, current.status());
     int updated = jdbc.update(
         "update app_user set name=?,email=?,role=?,phone=?,updated_at=current_timestamp,version=version+1 "
             + "where id=? and version=?",
         command.name() == null ? current.name() : command.name(),
         command.email() == null ? current.email() : command.email(),
-        command.role() == null ? current.role().name() : command.role().name(),
+        nextRole.name(),
         command.phone() == null ? current.phone() : command.phone(), id, command.version());
     if (updated == 0) throw versionConflict();
     return get(id);
@@ -67,12 +72,38 @@ public class UserService {
 
   @Transactional
   public User changeStatus(UUID id, StatusCommand command) {
-    get(id);
+    User current = get(id);
+    ensureRemainingActiveAdmin(current, current.role(), command.status());
     int updated = jdbc.update(
         "update app_user set status=?,updated_at=current_timestamp,version=version+1 where id=? and version=?",
         command.status().name(), id, command.version());
     if (updated == 0) throw versionConflict();
+    if (command.status() == Status.INACTIVE || command.status() == Status.BLOCKED) {
+      // RN-008: deactivate/block must kill refresh sessions. Future password-reset must call
+      // AuthService.revokeAllSessions(userId) the same way.
+      auth.revokeAllSessions(id);
+    }
     return get(id);
+  }
+
+  /**
+   * Blocks demotion or deactivation/block of the last ACTIVE ADMIN so the system cannot be locked out.
+   */
+  private void ensureRemainingActiveAdmin(User current, Role nextRole, Status nextStatus) {
+    boolean currentlyActiveAdmin = current.role() == Role.ADMIN && current.status() == Status.ACTIVE;
+    if (!currentlyActiveAdmin) {
+      return;
+    }
+    boolean remainsActiveAdmin = nextRole == Role.ADMIN && nextStatus == Status.ACTIVE;
+    if (remainsActiveAdmin) {
+      return;
+    }
+    Long others = jdbc.queryForObject(
+        "select count(*) from app_user where role=? and status=? and id<>?",
+        Long.class, Role.ADMIN.name(), Status.ACTIVE.name(), current.id());
+    if (others == null || others < 1) {
+      throw lastAdmin();
+    }
   }
 
   private boolean emailExists(String email, UUID excludedId) {
@@ -97,6 +128,12 @@ public class UserService {
   private static ApiException notFound() { return new ApiException(HttpStatus.NOT_FOUND, "USER_NOT_FOUND", "User not found"); }
   private static ApiException emailConflict() { return new ApiException(HttpStatus.CONFLICT, "EMAIL_ALREADY_EXISTS", "Email is already in use"); }
   private static ApiException versionConflict() { return new ApiException(HttpStatus.CONFLICT, "VERSION_CONFLICT", "User was modified by another request"); }
+  private static ApiException lastAdmin() {
+    return new ApiException(
+        HttpStatus.CONFLICT,
+        "LAST_ADMIN",
+        "Cannot remove or demote the last active administrator");
+  }
 
   public enum Status { ACTIVE, INACTIVE, BLOCKED }
   public record CreateCommand(String name, String email, String password, Role role, String phone) {}
