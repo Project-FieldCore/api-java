@@ -12,7 +12,7 @@ Clients, sites, and inspection execution endpoints are **not** implemented on
 | `POST /api/v1/auth/login` and `POST /api/v1/auth/refresh` | Allowed | Allowed | Allowed | Allowed | Allowed |
 | `POST /api/v1/auth/logout` and `GET /api/v1/auth/me` | Own session | Own session | Own session | Own session | 401 |
 | `/api/v1/users` (all methods, including `/{userId}` and `/{userId}/status`) | Allowed | 403 | 403 | 403 | 401 |
-| `/api/v1/equipment/by-qr/{qrCode}` and `PATCH .../qr-code` | Allowed | Allowed | 403 | 403 | 401 |
+| `/api/v1/equipment` CRUD + `/sites/{siteId}/equipment` + QR lookup/assign | Allowed | Allowed | 403 | 403 | 401 |
 | `/api/v1/inspection-templates` (create/get/update draft) | Allowed | Allowed | 403 | 403 | 401 |
 
 ## Notes
