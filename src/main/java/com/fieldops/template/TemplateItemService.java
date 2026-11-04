@@ -26,16 +26,56 @@ public class TemplateItemService {
   @Transactional
   public Item create(UUID sectionId, CreateCommand command) {
     requireDraftSection(sectionId);
-    validateOptions(command.responseType(), command.options());
+    ResponseType type = command.responseType();
+    validateOptions(type, command.options());
+    boolean observation = normalizeFailureFlag(type, command.observationRequiredOnFailure());
+    boolean evidence = normalizeFailureFlag(type, command.evidenceRequiredOnFailure());
     UUID id = UUID.randomUUID();
     try {
       jdbc.update("insert into template_item (id,section_id,code,title,description,response_type,required,observation_required_on_failure,evidence_required_on_failure,display_order,options_json) values (?,?,?,?,?,?,?,?,?,?,?)",
-          id, sectionId, command.code(), command.title(), command.description(), command.responseType().name(), command.required(),
-          command.observationRequiredOnFailure(), command.evidenceRequiredOnFailure(), command.displayOrder(), optionsJson(command.options()));
+          id, sectionId, command.code(), command.title(), command.description(), type.name(), command.required(),
+          observation, evidence, command.displayOrder(), optionsJson(command.options()));
     } catch (DataIntegrityViolationException ex) {
       throw orderConflict();
     }
     return get(id);
+  }
+
+  @Transactional
+  public Item update(UUID sectionId, UUID itemId, UpdateCommand command) {
+    requireDraftSection(sectionId);
+    Item current = requireItemInSection(sectionId, itemId);
+
+    String title = command.title() != null ? command.title() : current.title();
+    String description = command.description() != null ? command.description() : current.description();
+    String code = command.code() != null ? command.code() : current.code();
+    ResponseType type = command.responseType() != null ? command.responseType() : current.responseType();
+    boolean required = command.required() != null ? command.required() : current.required();
+    int displayOrder = command.displayOrder() != null ? command.displayOrder() : current.displayOrder();
+    List<String> options = command.options() != null ? command.options() : parseOptions(current.optionsJson());
+    boolean observationSource = command.observationRequiredOnFailure() != null
+        ? command.observationRequiredOnFailure() : current.observationRequiredOnFailure();
+    boolean evidenceSource = command.evidenceRequiredOnFailure() != null
+        ? command.evidenceRequiredOnFailure() : current.evidenceRequiredOnFailure();
+    boolean observation = normalizeFailureFlag(type, observationSource);
+    boolean evidence = normalizeFailureFlag(type, evidenceSource);
+
+    validateOptions(type, options);
+    try {
+      int updated = jdbc.update("""
+          update template_item
+             set code=?, title=?, description=?, response_type=?, required=?,
+                 observation_required_on_failure=?, evidence_required_on_failure=?,
+                 display_order=?, options_json=?
+           where id=? and section_id=?
+          """,
+          code, title, description, type.name(), required, observation, evidence, displayOrder,
+          optionsJson(options), itemId, sectionId);
+      if (updated == 0) throw itemNotFound();
+    } catch (DataIntegrityViolationException ex) {
+      throw orderConflict();
+    }
+    return get(itemId);
   }
 
   public List<Item> listBySection(UUID sectionId) {
@@ -45,6 +85,12 @@ public class TemplateItemService {
 
   private Item get(UUID id) {
     List<Item> items = jdbc.query("select * from template_item where id=?", (rs, row) -> map(rs), id);
+    if (items.isEmpty()) throw itemNotFound();
+    return items.getFirst();
+  }
+
+  private Item requireItemInSection(UUID sectionId, UUID itemId) {
+    List<Item> items = jdbc.query("select * from template_item where id=? and section_id=?", (rs, row) -> map(rs), itemId, sectionId);
     if (items.isEmpty()) throw itemNotFound();
     return items.getFirst();
   }
@@ -70,12 +116,27 @@ public class TemplateItemService {
     }
   }
 
+  /** Failure flags (RN-038/039) only apply to CONFORMITY — same as WEB supportsFailureRules. */
+  private static boolean normalizeFailureFlag(ResponseType type, boolean value) {
+    return type == ResponseType.CONFORMITY && value;
+  }
+
   private String optionsJson(List<String> options) {
     if (options == null || options.isEmpty()) return null;
     try {
       return json.writeValueAsString(options);
     } catch (JsonProcessingException ex) {
       throw new IllegalStateException("Could not serialize response options", ex);
+    }
+  }
+
+  @SuppressWarnings("unchecked")
+  private List<String> parseOptions(String optionsJson) {
+    if (optionsJson == null || optionsJson.isBlank()) return List.of();
+    try {
+      return json.readValue(optionsJson, List.class);
+    } catch (JsonProcessingException ex) {
+      throw new IllegalStateException("Could not parse response options", ex);
     }
   }
 
@@ -97,6 +158,9 @@ public class TemplateItemService {
   public enum ResponseType { TEXT_SHORT, TEXT_LONG, NUMBER, BOOLEAN, CONFORMITY, SINGLE_CHOICE, DATE }
   public record CreateCommand(String code, String title, String description, ResponseType responseType, boolean required,
                               boolean observationRequiredOnFailure, boolean evidenceRequiredOnFailure, int displayOrder,
+                              List<String> options) {}
+  public record UpdateCommand(String code, String title, String description, ResponseType responseType, Boolean required,
+                              Boolean observationRequiredOnFailure, Boolean evidenceRequiredOnFailure, Integer displayOrder,
                               List<String> options) {}
   public record Item(UUID id, UUID sectionId, String code, String title, String description, ResponseType responseType,
                      boolean required, boolean observationRequiredOnFailure, boolean evidenceRequiredOnFailure,

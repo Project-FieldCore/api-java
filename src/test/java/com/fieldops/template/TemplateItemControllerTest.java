@@ -2,10 +2,12 @@ package com.fieldops.template;
 
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -20,6 +22,7 @@ import org.springframework.test.web.servlet.MockMvc;
 class TemplateItemControllerTest {
   @Autowired MockMvc mvc;
   @Autowired JdbcTemplate jdbc;
+  ObjectMapper json = new ObjectMapper();
 
   @BeforeEach void clean() {
     jdbc.update("delete from template_item");
@@ -79,6 +82,62 @@ class TemplateItemControllerTest {
     mvc.perform(post("/api/v1/template-sections/{sectionId}/items", activeSection).with(supervisor())
             .contentType("application/json").content(request))
         .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("TEMPLATE_NOT_EDITABLE"));
+  }
+
+  @Test
+  void createAndPatchPersistRequiredAndConformityFailureFlags() throws Exception {
+    UUID sectionId = insertSection("DRAFT");
+    String createdBody = mvc.perform(post("/api/v1/template-sections/{sectionId}/items", sectionId).with(supervisor())
+            .contentType("application/json")
+            .content("""
+                {"title":"Valve check","responseType":"CONFORMITY","required":true,
+                 "observationRequiredOnFailure":true,"evidenceRequiredOnFailure":true,"displayOrder":0}
+                """))
+        .andExpect(status().isCreated())
+        .andExpect(jsonPath("$.required").value(true))
+        .andExpect(jsonPath("$.observationRequiredOnFailure").value(true))
+        .andExpect(jsonPath("$.evidenceRequiredOnFailure").value(true))
+        .andReturn().getResponse().getContentAsString();
+    UUID itemId = UUID.fromString(json.readTree(createdBody).get("id").asText());
+
+    mvc.perform(patch("/api/v1/template-sections/{sectionId}/items/{itemId}", sectionId, itemId).with(supervisor())
+            .contentType("application/json")
+            .content("""
+                {"required":false,"observationRequiredOnFailure":false,"evidenceRequiredOnFailure":true}
+                """))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.required").value(false))
+        .andExpect(jsonPath("$.observationRequiredOnFailure").value(false))
+        .andExpect(jsonPath("$.evidenceRequiredOnFailure").value(true))
+        .andExpect(jsonPath("$.responseType").value("CONFORMITY"));
+
+    mvc.perform(post("/api/v1/template-sections/{sectionId}/items", sectionId).with(supervisor())
+            .contentType("application/json")
+            .content("""
+                {"title":"Notes","responseType":"TEXT_SHORT","required":true,
+                 "observationRequiredOnFailure":true,"evidenceRequiredOnFailure":true,"displayOrder":1}
+                """))
+        .andExpect(status().isCreated())
+        .andExpect(jsonPath("$.required").value(true))
+        .andExpect(jsonPath("$.observationRequiredOnFailure").value(false))
+        .andExpect(jsonPath("$.evidenceRequiredOnFailure").value(false));
+  }
+
+  @Test
+  void patchOnNonDraftTemplateReturnsTemplateNotEditable() throws Exception {
+    UUID activeSection = insertSection("ACTIVE");
+    UUID itemId = UUID.randomUUID();
+    jdbc.update("""
+        insert into template_item
+          (id,section_id,title,response_type,required,observation_required_on_failure,evidence_required_on_failure,display_order)
+        values (?,?,?,?,?,?,?,?)
+        """, itemId, activeSection, "Frozen", "CONFORMITY", true, true, false, 0);
+
+    mvc.perform(patch("/api/v1/template-sections/{sectionId}/items/{itemId}", activeSection, itemId).with(admin())
+            .contentType("application/json")
+            .content("{\"required\":false}"))
+        .andExpect(status().isConflict())
+        .andExpect(jsonPath("$.code").value("TEMPLATE_NOT_EDITABLE"));
   }
 
   private UUID insertSection(String templateStatus) {

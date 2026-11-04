@@ -11,6 +11,7 @@ import java.util.UUID;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -35,6 +36,14 @@ public class TemplateItemController {
     return ResponseEntity.status(201).body(item);
   }
 
+  @PatchMapping("/{itemId}")
+  public TemplateItemService.Item update(
+      @PathVariable UUID sectionId, @PathVariable UUID itemId, @Valid @RequestBody UpdateItemRequest body) {
+    return items.update(sectionId, itemId, new TemplateItemService.UpdateCommand(
+        body.code(), body.title(), body.description(), body.responseType(), body.required(),
+        body.observationRequiredOnFailure(), body.evidenceRequiredOnFailure(), body.displayOrder(), body.options()));
+  }
+
   @GetMapping
   public List<TemplateItemService.Item> list(@PathVariable UUID sectionId) { return items.listBySection(sectionId); }
 
@@ -42,4 +51,9 @@ public class TemplateItemController {
                                   @Size(max = 1000) String description, @NotNull TemplateItemService.ResponseType responseType,
                                   Boolean required, Boolean observationRequiredOnFailure, Boolean evidenceRequiredOnFailure,
                                   @NotNull @Min(0) Integer displayOrder, List<@NotBlank @Size(max = 255) String> options) {}
+
+  public record UpdateItemRequest(@Size(max = 100) String code, @Size(max = 500) String title,
+                                  @Size(max = 1000) String description, TemplateItemService.ResponseType responseType,
+                                  Boolean required, Boolean observationRequiredOnFailure, Boolean evidenceRequiredOnFailure,
+                                  @Min(0) Integer displayOrder, List<@NotBlank @Size(max = 255) String> options) {}
 }
