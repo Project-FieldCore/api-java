@@ -55,9 +55,16 @@ public class InspectionTemplateController {
         new InspectionTemplateService.UpdateCommand(body.title(), body.description(), body.category(), body.version()));
   }
 
+  @PostMapping("/{templateId}/publish")
+  public InspectionTemplateService.Template publish(@PathVariable UUID templateId, @Valid @RequestBody PublishTemplateRequest body, Authentication authentication) {
+    UUID publishedBy = authentication.getPrincipal() instanceof FieldOpsUserPrincipal principal ? principal.userId() : null;
+    return templates.publish(templateId, new InspectionTemplateService.PublishCommand(body.version()), publishedBy);
+  }
+
   public record CreateTemplateRequest(@NotBlank @Size(max = 160) String title,
                                       @Size(max = 1000) String description,
                                       @NotBlank @Size(max = 100) String category) {}
   public record UpdateTemplateRequest(@Size(max = 160) String title, @Size(max = 1000) String description,
                                       @Size(max = 100) String category, @NotNull @Min(0) Integer version) {}
+  public record PublishTemplateRequest(@NotNull @Min(0) Integer version) {}
 }

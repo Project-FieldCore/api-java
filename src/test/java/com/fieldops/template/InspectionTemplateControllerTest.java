@@ -85,6 +85,26 @@ class InspectionTemplateControllerTest {
   }
 
   @Test
+  void publishingRequiresTypedContentAndEditingPublishedTemplateCreatesNewDraftVersion() throws Exception {
+    String created = mvc.perform(post("/api/v1/inspection-templates").with(supervisor()).contentType("application/json")
+            .content("{\"title\":\"Publishable\",\"category\":\"SAFETY\"}"))
+        .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
+    UUID templateId = UUID.fromString(json.readTree(created).get("id").asText());
+    UUID draftVersionId = UUID.fromString(json.readTree(created).get("draftVersionId").asText());
+    mvc.perform(post("/api/v1/inspection-templates/{templateId}/publish", templateId).with(supervisor()).contentType("application/json").content("{\"version\":0}"))
+        .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("TEMPLATE_NOT_PUBLISHABLE"));
+    String section = mvc.perform(post("/api/v1/template-versions/{id}/sections", draftVersionId).with(supervisor()).contentType("application/json").content("{\"title\":\"Section\",\"displayOrder\":0}"))
+        .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
+    UUID sectionId = UUID.fromString(json.readTree(section).get("id").asText());
+    mvc.perform(post("/api/v1/template-sections/{id}/items", sectionId).with(supervisor()).contentType("application/json").content("{\"title\":\"Item\",\"responseType\":\"BOOLEAN\",\"displayOrder\":0}"))
+        .andExpect(status().isCreated());
+    mvc.perform(post("/api/v1/inspection-templates/{templateId}/publish", templateId).with(supervisor()).contentType("application/json").content("{\"version\":0}"))
+        .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("ACTIVE")).andExpect(jsonPath("$.draftVersionId").doesNotExist());
+    mvc.perform(patch("/api/v1/inspection-templates/{templateId}", templateId).with(supervisor()).contentType("application/json").content("{\"title\":\"Next draft\",\"version\":1}"))
+        .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("DRAFT")).andExpect(jsonPath("$.draftVersionId").isNotEmpty());
+  }
+
+  @Test
   void onlyAdministratorsAndSupervisorsCanManageTemplates() throws Exception {
     UUID id = insertTemplate("Draft", "DRAFT", 0);
     mvc.perform(get("/api/v1/inspection-templates/{templateId}", id))
