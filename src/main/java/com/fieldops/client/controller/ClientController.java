@@ -32,8 +32,11 @@ public class ClientController {
 
   @GetMapping
   public ClientService.Page list(@RequestParam(defaultValue = "0") @Min(0) int page,
-                                 @RequestParam(defaultValue = "20") @Min(1) @Max(100) int size) {
-    return clients.list(page, size);
+                                 @RequestParam(defaultValue = "20") @Min(1) @Max(100) int size,
+                                 @RequestParam(defaultValue = "name,asc") String sort,
+                                 @RequestParam(required = false) String q,
+                                 @RequestParam(required = false) ClientService.Status status) {
+    return clients.list(page, size, sort, q, status);
   }
 
   @GetMapping("/{clientId}")

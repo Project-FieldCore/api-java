@@ -1,8 +1,8 @@
 # API authorization matrix
 
 Documents the authorization enforced for endpoints **currently implemented on
-`develop`**. Authorization is server-side (Spring Security + `@PreAuthorize`);
-client-side role checks are never sufficient.
+`develop`** (and stacked master-data PRs). Authorization is server-side
+(Spring Security + `@PreAuthorize`); client-side role checks are never sufficient.
 
 Inspection execution endpoints may land in sibling PRs — keep this matrix in
 sync when those controllers merge.

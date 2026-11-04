@@ -22,6 +22,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
@@ -42,7 +43,12 @@ public class SiteController {
   }
 
   @GetMapping("/sites")
-  public List<SiteService.Site> list() { return sites.list(); }
+  public SiteService.Page list(@RequestParam(defaultValue = "0") @Min(0) int page,
+      @RequestParam(defaultValue = "20") @Min(1) @jakarta.validation.constraints.Max(100) int size,
+      @RequestParam(defaultValue = "name,asc") String sort, @RequestParam(required = false) String q,
+      @RequestParam(required = false) SiteService.Status status, @RequestParam(required = false) UUID clientId) {
+    return sites.list(page, size, sort, q, status, clientId);
+  }
 
   @GetMapping("/sites/{siteId}")
   public SiteService.Site get(@PathVariable UUID siteId) { return sites.get(siteId); }
