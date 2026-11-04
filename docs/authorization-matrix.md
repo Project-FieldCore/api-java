@@ -4,8 +4,8 @@ Documents the authorization enforced for endpoints **currently implemented on
 `develop`**. Authorization is server-side (Spring Security + `@PreAuthorize`);
 client-side role checks are never sufficient.
 
-Equipment CRUD and inspection execution endpoints may land in sibling PRs —
-keep this matrix in sync when those controllers merge.
+Inspection execution endpoints may land in sibling PRs — keep this matrix in
+sync when those controllers merge.
 
 | Endpoint group | ADMIN | SUPERVISOR | TECHNICIAN | CLIENT_VIEWER | Anonymous |
 | --- | --- | --- | --- | --- | --- |
@@ -14,7 +14,7 @@ keep this matrix in sync when those controllers merge.
 | `/api/v1/users` (all methods, including `/{userId}` and `/{userId}/status`) | Allowed | 403 | 403 | 403 | 401 |
 | `/api/v1/clients` (all methods, including `/{clientId}/status`) | Allowed | Allowed | 403 | 403 | 401 |
 | `/api/v1/clients/{clientId}/sites` and `/api/v1/sites` (all methods) | Allowed | Allowed | 403 | 403 | 401 |
-| `/api/v1/equipment/by-qr/{qrCode}` and `PATCH .../qr-code` | Allowed | Allowed | 403 | 403 | 401 |
+| `/api/v1/equipment` CRUD + `/sites/{siteId}/equipment` + QR lookup/assign | Allowed | Allowed | 403 | 403 | 401 |
 | `/api/v1/inspection-templates` (create/get/update draft) | Allowed | Allowed | 403 | 403 | 401 |
 
 ## Notes
