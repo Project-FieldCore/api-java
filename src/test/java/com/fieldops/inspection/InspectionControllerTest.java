@@ -57,14 +57,21 @@ class InspectionControllerTest {
     UUID version = insertPublishedVersion();
     String body = body(version, client, site, technician);
 
-    mvc.perform(post("/api/v1/inspections").with(principal(supervisor, "SUPERVISOR")).contentType("application/json").content(body))
+    String response = mvc.perform(post("/api/v1/inspections").with(principal(supervisor, "SUPERVISOR")).contentType("application/json").content(body))
         .andExpect(status().isCreated())
         .andExpect(jsonPath("$.status").value("ASSIGNED"))
         .andExpect(jsonPath("$.clientId").value(client.toString()))
         .andExpect(jsonPath("$.siteId").value(site.toString()))
-        .andExpect(jsonPath("$.technicianId").value(technician.toString()));
+        .andExpect(jsonPath("$.technicianId").value(technician.toString())).andReturn().getResponse().getContentAsString();
+    UUID inspection = UUID.fromString(new com.fasterxml.jackson.databind.ObjectMapper().readTree(response).get("id").asText());
     Integer snapshots = jdbc.queryForObject("select count(*) from inspection_item_snapshot", Integer.class);
     org.assertj.core.api.Assertions.assertThat(snapshots).isEqualTo(1);
+    String snapshotTitle = jdbc.queryForObject("select item_title from inspection_item_snapshot where inspection_id=?", String.class, inspection);
+    String rules = jdbc.queryForObject("select rules_json from inspection_item_snapshot where inspection_id=?", String.class, inspection);
+    jdbc.update("update template_item set title='Changed after scheduling'");
+    org.assertj.core.api.Assertions.assertThat(snapshotTitle).isEqualTo("Item");
+    org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject("select item_title from inspection_item_snapshot where inspection_id=?", String.class, inspection)).isEqualTo("Item");
+    org.assertj.core.api.Assertions.assertThat(rules).contains("observationRequiredOnFailure");
   }
 
   @Test
