@@ -72,6 +72,13 @@ class EquipmentControllerTest {
         .andExpect(status().isUnauthorized()).andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
     mvc.perform(get("/api/v1/equipment/by-qr/{qrCode}", "QR-UNIQUE").with(user("tech").roles("TECHNICIAN")))
         .andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value("ACCESS_DENIED"));
+    mvc.perform(get("/api/v1/equipment/by-qr/{qrCode}", "QR-UNIQUE").with(user("viewer").roles("CLIENT_VIEWER")))
+        .andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value("ACCESS_DENIED"));
+    mvc.perform(patch("/api/v1/equipment/{equipmentId}/qr-code", UUID.randomUUID())
+            .with(user("viewer").roles("CLIENT_VIEWER"))
+            .contentType("application/json")
+            .content("{\"qrCode\":\"QR-DENIED\",\"version\":0}"))
+        .andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value("ACCESS_DENIED"));
     mvc.perform(get("/api/v1/equipment/by-qr/{qrCode}", "QR-UNIQUE").with(admin()))
         .andExpect(status().isOk());
   }

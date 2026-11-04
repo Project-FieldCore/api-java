@@ -78,6 +78,12 @@ class InspectionTemplateControllerTest {
         .andExpect(status().isUnauthorized()).andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
     mvc.perform(get("/api/v1/inspection-templates/{templateId}", id).with(user("tech").roles("TECHNICIAN")))
         .andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value("ACCESS_DENIED"));
+    mvc.perform(get("/api/v1/inspection-templates/{templateId}", id).with(user("viewer").roles("CLIENT_VIEWER")))
+        .andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value("ACCESS_DENIED"));
+    mvc.perform(post("/api/v1/inspection-templates").with(user("viewer").roles("CLIENT_VIEWER"))
+            .contentType("application/json")
+            .content("{\"title\":\"Denied\",\"category\":\"SAFETY\"}"))
+        .andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value("ACCESS_DENIED"));
     mvc.perform(get("/api/v1/inspection-templates/{templateId}", id).with(admin()))
         .andExpect(status().isOk());
   }
