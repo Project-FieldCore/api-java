@@ -75,6 +75,45 @@ class InspectionControllerTest {
   }
 
   @Test
+  void priorityDeadlineAndInstructionsArePersistedAndReturnedToTechnician() throws Exception {
+    UUID supervisor = insertUser("SUPERVISOR", "ACTIVE");
+    UUID technician = insertUser("TECHNICIAN", "ACTIVE");
+    UUID client = insertClient();
+    UUID site = insertSite(client);
+    UUID version = insertPublishedVersion();
+    OffsetDateTime scheduledFor = OffsetDateTime.now().plusDays(2).withNano(0);
+    String instructions = "Use EPI e registre fotos do painel.";
+    String body = "{\"templateVersionId\":\"" + version + "\",\"clientId\":\"" + client
+        + "\",\"siteId\":\"" + site + "\",\"technicianId\":\"" + technician
+        + "\",\"scheduledFor\":\"" + scheduledFor + "\",\"priority\":\"HIGH\",\"instructions\":\""
+        + instructions + "\"}";
+
+    String response = mvc.perform(post("/api/v1/inspections").with(principal(supervisor, "SUPERVISOR"))
+            .contentType("application/json").content(body))
+        .andExpect(status().isCreated())
+        .andExpect(jsonPath("$.priority").value("HIGH"))
+        .andExpect(jsonPath("$.instructions").value(instructions))
+        .andExpect(jsonPath("$.scheduledFor").value(scheduledFor.toInstant().toString()))
+        .andReturn().getResponse().getContentAsString();
+
+    UUID inspectionId = UUID.fromString(new com.fasterxml.jackson.databind.ObjectMapper().readTree(response).get("id").asText());
+    org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject(
+        "select priority from inspection where id=?", String.class, inspectionId)).isEqualTo("HIGH");
+    org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject(
+        "select instructions from inspection where id=?", String.class, inspectionId)).isEqualTo(instructions);
+    org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject(
+        "select scheduled_for from inspection where id=?", java.sql.Timestamp.class, inspectionId).toInstant())
+        .isEqualTo(scheduledFor.toInstant());
+
+    mvc.perform(get("/api/v1/inspections/my").with(principal(technician, "TECHNICIAN")))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$[0].id").value(inspectionId.toString()))
+        .andExpect(jsonPath("$[0].priority").value("HIGH"))
+        .andExpect(jsonPath("$[0].instructions").value(instructions))
+        .andExpect(jsonPath("$[0].scheduledFor").value(scheduledFor.toInstant().toString()));
+  }
+
+  @Test
   void unpublishedVersionMismatchedSiteAndInactiveTechnicianUseStandardErrors() throws Exception {
     UUID supervisor = insertUser("SUPERVISOR", "ACTIVE");
     UUID activeTech = insertUser("TECHNICIAN", "ACTIVE");
