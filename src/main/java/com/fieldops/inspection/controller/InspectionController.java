@@ -63,6 +63,19 @@ public class InspectionController {
     return inspections.list(page, size, sort, status, scheduledFrom, scheduledTo, technicianId, clientId);
   }
 
+  @GetMapping("/{inspectionId}/monitoring")
+  @PreAuthorize("hasAnyRole('ADMIN','SUPERVISOR')")
+  public InspectionSchedulingService.Monitoring monitoring(@PathVariable UUID inspectionId) {
+    return inspections.monitoring(inspectionId);
+  }
+
+  @GetMapping("/{inspectionId}/evidence/{evidenceId}/content")
+  @PreAuthorize("hasAnyRole('ADMIN','SUPERVISOR')")
+  public ResponseEntity<byte[]> evidenceContent(@PathVariable UUID inspectionId, @PathVariable UUID evidenceId) {
+    InspectionSchedulingService.EvidenceContent content = inspections.evidenceContent(inspectionId, evidenceId);
+    return ResponseEntity.ok().header("Content-Type", content.contentType()).body(content.bytes());
+  }
+
   @PatchMapping("/{inspectionId}/assignee")
   @PreAuthorize("hasAnyRole('ADMIN','SUPERVISOR')")
   public InspectionSchedulingService.Inspection assign(

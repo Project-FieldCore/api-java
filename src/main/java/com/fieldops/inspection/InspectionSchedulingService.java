@@ -15,8 +15,12 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class InspectionSchedulingService {
   private final JdbcTemplate jdbc;
+  private final EvidenceFileStore files;
 
-  public InspectionSchedulingService(JdbcTemplate jdbc) { this.jdbc = jdbc; }
+  public InspectionSchedulingService(JdbcTemplate jdbc, EvidenceFileStore files) {
+    this.jdbc = jdbc;
+    this.files = files;
+  }
 
   @Transactional
   public Inspection schedule(ScheduleCommand command, UUID supervisorId) {
@@ -92,6 +96,32 @@ public class InspectionSchedulingService {
     return new Page(items, new PageMeta(page, size, total, (int) Math.ceil((double) total / size)));
   }
 
+  /** Evidências e não conformidades já recebidas pela API para o acompanhamento. */
+  public Monitoring monitoring(UUID inspectionId) {
+    get(inspectionId);
+    List<Evidence> evidences = jdbc.query(
+        "select e.id,e.inspection_response_id,r.inspection_item_id,e.storage_key,e.file_name,e.content_type,e.size_bytes,e.created_by,e.created_at from evidence e join inspection_response r on r.id=e.inspection_response_id where r.inspection_id=? order by e.created_at,e.id",
+        (rs, row) -> new Evidence(uuid(rs.getString("id")), uuid(rs.getString("inspection_response_id")), uuid(rs.getString("inspection_item_id")), rs.getString("storage_key"), rs.getString("file_name"), rs.getString("content_type"), rs.getLong("size_bytes"), optionalUuid(rs.getString("created_by")), rs.getTimestamp("created_at").toInstant()),
+        inspectionId);
+    List<NonConformity> nonConformities = jdbc.query(
+        "select id,inspection_response_id,severity,description,status,resolved_at,resolved_by,created_at from non_conformity where inspection_id=? order by created_at,id",
+        (rs, row) -> {
+          Timestamp resolvedAt = rs.getTimestamp("resolved_at");
+          return new NonConformity(uuid(rs.getString("id")), optionalUuid(rs.getString("inspection_response_id")), Severity.valueOf(rs.getString("severity")), rs.getString("description"), NonConformityStatus.valueOf(rs.getString("status")), resolvedAt == null ? null : resolvedAt.toInstant(), optionalUuid(rs.getString("resolved_by")), rs.getTimestamp("created_at").toInstant());
+        }, inspectionId);
+    return new Monitoring(inspectionId, evidences, nonConformities);
+  }
+
+  public EvidenceContent evidenceContent(UUID inspectionId, UUID evidenceId) {
+    get(inspectionId);
+    List<EvidenceContent> rows = jdbc.query(
+        "select e.file_name,e.content_type,e.storage_key from evidence e join inspection_response r on r.id=e.inspection_response_id where e.id=? and r.inspection_id=?",
+        (rs, row) -> new EvidenceContent(rs.getString("file_name"), rs.getString("content_type"), files.read(rs.getString("storage_key"))),
+        evidenceId, inspectionId);
+    if (rows.isEmpty()) throw new ApiException(HttpStatus.NOT_FOUND, "EVIDENCE_NOT_FOUND", "Evidence not found");
+    return rows.getFirst();
+  }
+
   private static Object[] concat(Object[] values, Object... tail) {
     Object[] result = java.util.Arrays.copyOf(values, values.length + tail.length);
     System.arraycopy(tail, 0, result, values.length, tail.length);
@@ -161,6 +191,14 @@ public class InspectionSchedulingService {
   public record Inspection(UUID id, UUID clientId, UUID siteId, UUID templateVersionId, UUID technicianId, UUID supervisorId, String title, String instructions, Priority priority, Status status, Instant scheduledFor, int version, UUID canceledBy, Instant canceledAt, String canceledReason) {}
   public record Page(List<Inspection> items, PageMeta page) {}
   public record PageMeta(int page, int size, long totalElements, int totalPages) {}
+  public enum Severity { LOW, MEDIUM, HIGH, CRITICAL }
+  public enum NonConformityStatus { OPEN, RESOLVED, WAIVED }
+  public record Monitoring(UUID inspectionId, List<Evidence> evidences, List<NonConformity> nonConformities) {}
+  public record Evidence(UUID id, UUID inspectionResponseId, UUID inspectionItemId, String storageKey, String fileName, String contentType, long sizeBytes, UUID createdBy, Instant createdAt) {}
+  public record NonConformity(UUID id, UUID inspectionResponseId, Severity severity, String description, NonConformityStatus status, Instant resolvedAt, UUID resolvedBy, Instant createdAt) {}
+  public record EvidenceContent(String fileName, String contentType, byte[] bytes) {}
+  private static UUID uuid(String value) { return UUID.fromString(value); }
+  private static UUID optionalUuid(String value) { return value == null ? null : UUID.fromString(value); }
   private record PublishedVersion(UUID id, String title) {}
   private record SnapshotSource(UUID sourceItemId, String sectionTitle, String sectionDescription, int sectionOrder, String code, String title, String description, String responseType, boolean required, boolean observationRequiredOnFailure, boolean evidenceRequiredOnFailure, String optionsJson, int itemOrder) {}
 }

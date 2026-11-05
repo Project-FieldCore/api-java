@@ -307,6 +307,29 @@ class InspectionControllerTest {
   }
 
   @Test
+  void supervisorViewsSynchronizedEvidenceAndNonConformities() throws Exception {
+    UUID supervisor = insertUser("SUPERVISOR", "ACTIVE");
+    UUID technician = insertUser("TECHNICIAN", "ACTIVE");
+    UUID client = insertClient(); UUID site = insertSite(client); UUID version = insertPublishedVersion();
+    UUID inspection = insertInspection(version, client, site, technician, supervisor, "SUBMITTED", 1);
+    UUID item = insertSnapshot(inspection);
+    UUID response = UUID.randomUUID(); UUID evidence = UUID.randomUUID(); UUID nonConformity = UUID.randomUUID();
+    jdbc.update("insert into inspection_response (id,inspection_id,inspection_item_id,conformity,answered_by) values (?,?,?,?,?)", response, inspection, item, "NON_CONFORMING", technician);
+    jdbc.update("insert into evidence (id,inspection_response_id,storage_key,file_name,content_type,size_bytes,created_by) values (?,?,?,?,?,?,?)", evidence, response, "inspections/" + inspection + "/foto.jpg", "foto.jpg", "image/jpeg", 4, technician);
+    jdbc.update("insert into non_conformity (id,inspection_id,inspection_response_id,severity,description,status) values (?,?,?,?,?,?)", nonConformity, inspection, response, "HIGH", "Proteção ausente", "OPEN");
+
+    mvc.perform(get("/api/v1/inspections/{inspectionId}/monitoring", inspection).with(principal(supervisor, "SUPERVISOR")))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.inspectionId").value(inspection.toString()))
+        .andExpect(jsonPath("$.evidences[0].fileName").value("foto.jpg"))
+        .andExpect(jsonPath("$.evidences[0].inspectionItemId").value(item.toString()))
+        .andExpect(jsonPath("$.nonConformities[0].severity").value("HIGH"))
+        .andExpect(jsonPath("$.nonConformities[0].description").value("Proteção ausente"));
+    mvc.perform(get("/api/v1/inspections/{inspectionId}/monitoring", inspection).with(principal(technician, "TECHNICIAN")))
+        .andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value("ACCESS_DENIED"));
+  }
+
+  @Test
   void technicianRegistersNonConformityOnlyWhenTheItemHasEvidence() throws Exception {
     UUID technician = insertUser("TECHNICIAN", "ACTIVE");
     UUID supervisor = insertUser("SUPERVISOR", "ACTIVE");
