@@ -42,6 +42,8 @@ class OpenApiContractTest {
     assertTrue(contract.contains("/api/v1/inspections/my/{inspectionId}/confirm-equipment:"));
     assertTrue(contract.contains("ConfirmEquipmentRequest:"));
     assertTrue(contract.contains("/api/v1/inspections/my/{inspectionId}/start:"));
+    assertTrue(contract.contains("/api/v1/inspections/my/{inspectionId}/items/{itemId}/evidence:"));
+    assertTrue(contract.contains("EvidenceFile:"));
     assertTrue(contract.contains("/api/v1/inspections/my/{inspectionId}/complete:"));
     assertTrue(contract.contains("AssignedInspection:"));
     assertTrue(contract.contains("scheduledFrom"));
