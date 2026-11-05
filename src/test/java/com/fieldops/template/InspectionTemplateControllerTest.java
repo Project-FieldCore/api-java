@@ -105,6 +105,24 @@ class InspectionTemplateControllerTest {
   }
 
   @Test
+  void publishingRejectsBlankTitleEvenWhenContentExists() throws Exception {
+    String created = mvc.perform(post("/api/v1/inspection-templates").with(supervisor()).contentType("application/json")
+            .content("{\"title\":\"Named\",\"category\":\"SAFETY\"}"))
+        .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
+    UUID templateId = UUID.fromString(json.readTree(created).get("id").asText());
+    UUID draftVersionId = UUID.fromString(json.readTree(created).get("draftVersionId").asText());
+    String section = mvc.perform(post("/api/v1/template-versions/{id}/sections", draftVersionId).with(supervisor()).contentType("application/json").content("{\"title\":\"Section\",\"displayOrder\":0}"))
+        .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
+    UUID sectionId = UUID.fromString(json.readTree(section).get("id").asText());
+    mvc.perform(post("/api/v1/template-sections/{id}/items", sectionId).with(supervisor()).contentType("application/json").content("{\"title\":\"Item\",\"responseType\":\"TEXT_SHORT\",\"displayOrder\":0}"))
+        .andExpect(status().isCreated());
+    mvc.perform(patch("/api/v1/inspection-templates/{templateId}", templateId).with(supervisor()).contentType("application/json").content("{\"title\":\" \",\"version\":0}"))
+        .andExpect(status().isOk());
+    mvc.perform(post("/api/v1/inspection-templates/{templateId}/publish", templateId).with(supervisor()).contentType("application/json").content("{\"version\":1}"))
+        .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("TEMPLATE_NOT_PUBLISHABLE"));
+  }
+
+  @Test
   void onlyAdministratorsAndSupervisorsCanManageTemplates() throws Exception {
     UUID id = insertTemplate("Draft", "DRAFT", 0);
     mvc.perform(get("/api/v1/inspection-templates/{templateId}", id))
