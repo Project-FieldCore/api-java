@@ -4,6 +4,8 @@ import com.fieldops.inspection.InspectionExecutionService;
 import com.fieldops.inspection.InspectionSchedulingService;
 import com.fieldops.shared.security.FieldOpsUserPrincipal;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.DecimalMax;
+import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.Future;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
@@ -110,7 +112,7 @@ public class InspectionController {
   public InspectionExecutionService.AssignedInspection start(
       @PathVariable UUID inspectionId, @RequestBody(required = false) StartInspectionRequest body,
       @AuthenticationPrincipal FieldOpsUserPrincipal principal) {
-    return execution.start(inspectionId, principal.userId(), body == null ? null : body.startedAtDevice());
+    return execution.start(inspectionId, principal.userId(), body == null ? null : body.startedAtDevice(), body == null ? null : body.latitude(), body == null ? null : body.longitude());
   }
 
   @PostMapping(value = "/my/{inspectionId}/items/{itemId}/evidence", consumes = org.springframework.http.MediaType.MULTIPART_FORM_DATA_VALUE)
@@ -138,7 +140,7 @@ public class InspectionController {
     List<InspectionExecutionService.AnswerInput> answers = body.answers() == null ? List.of() : body.answers().stream()
         .map(answer -> new InspectionExecutionService.AnswerInput(answer.itemId(), answer.valueText(), answer.valueNumber(), answer.valueBoolean(), answer.valueDate(), answer.conformity(), answer.observation()))
         .toList();
-    return execution.complete(inspectionId, principal.userId(), new InspectionExecutionService.CompleteCommand(body.version(), body.completedAtDevice(), answers));
+    return execution.complete(inspectionId, principal.userId(), new InspectionExecutionService.CompleteCommand(body.version(), body.completedAtDevice(), body.latitude(), body.longitude(), answers));
   }
 
   public record ScheduleInspectionRequest(@NotNull UUID templateVersionId, @NotNull UUID clientId, @NotNull UUID siteId,
@@ -148,8 +150,8 @@ public class InspectionController {
   public record AssignTechnicianRequest(@NotNull UUID technicianId, @NotNull @jakarta.validation.constraints.Min(0) Integer version) {}
   public record CancelInspectionRequest(@NotBlank @Size(max = 1000) String reason, @NotNull @Min(0) Integer version) {}
   public record ConfirmEquipmentRequest(@NotBlank @Size(max = 255) String qrCode) {}
-  public record StartInspectionRequest(OffsetDateTime startedAtDevice) {}
+  public record StartInspectionRequest(OffsetDateTime startedAtDevice, @DecimalMin("-90.0") @DecimalMax("90.0") BigDecimal latitude, @DecimalMin("-180.0") @DecimalMax("180.0") BigDecimal longitude) {}
   public record ObservationRequest(@Size(max = 2000) String observation) {}
-  public record CompleteInspectionRequest(@NotNull @Min(0) Integer version, OffsetDateTime completedAtDevice, List<AnswerRequest> answers) {}
+  public record CompleteInspectionRequest(@NotNull @Min(0) Integer version, OffsetDateTime completedAtDevice, @DecimalMin("-90.0") @DecimalMax("90.0") BigDecimal latitude, @DecimalMin("-180.0") @DecimalMax("180.0") BigDecimal longitude, List<AnswerRequest> answers) {}
   public record AnswerRequest(@NotNull UUID itemId, @Size(max = 4000) String valueText, BigDecimal valueNumber, Boolean valueBoolean, LocalDate valueDate, @Size(max = 32) String conformity, @Size(max = 2000) String observation) {}
 }
