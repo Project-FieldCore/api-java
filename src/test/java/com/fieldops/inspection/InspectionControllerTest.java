@@ -10,6 +10,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.fieldops.shared.security.FieldOpsUserPrincipal;
 import com.fieldops.shared.security.Role;
 import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
@@ -210,6 +211,48 @@ class InspectionControllerTest {
     mvc.perform(patch("/api/v1/inspections/{inspectionId}/cancel", assigned).with(principal(supervisor, "SUPERVISOR"))
             .contentType("application/json").content("{\"reason\":\"   \",\"version\":0}"))
         .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+  }
+
+  @Test
+  void supervisorListsInspectionsWithPaginationAndExplicitFilters() throws Exception {
+    UUID supervisor = insertUser("SUPERVISOR", "ACTIVE");
+    UUID technicianOne = insertUser("TECHNICIAN", "ACTIVE");
+    UUID technicianTwo = insertUser("TECHNICIAN", "ACTIVE");
+    UUID clientOne = insertClient(); UUID clientTwo = insertClient();
+    UUID version = insertPublishedVersion();
+    UUID first = insertInspection(version, clientOne, insertSite(clientOne), technicianOne, supervisor, "ASSIGNED", 0);
+    UUID second = insertInspection(version, clientOne, insertSite(clientOne), technicianTwo, supervisor, "CANCELED", 0);
+    insertInspection(version, clientTwo, insertSite(clientTwo), technicianOne, supervisor, "ASSIGNED", 0);
+    OffsetDateTime from = OffsetDateTime.now(ZoneOffset.UTC).minusMinutes(1).withNano(0);
+    OffsetDateTime to = OffsetDateTime.now(ZoneOffset.UTC).plusDays(1).withNano(0);
+
+    mvc.perform(get("/api/v1/inspections")
+            .param("status", "ASSIGNED").param("clientId", clientOne.toString()).param("technicianId", technicianOne.toString())
+            .param("scheduledFrom", from.toString()).param("scheduledTo", to.toString())
+            .param("page", "0").param("size", "1").param("sort", "scheduledFor,asc")
+            .with(principal(supervisor, "SUPERVISOR")))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.items.length()").value(1))
+        .andExpect(jsonPath("$.items[0].id").value(first.toString()))
+        .andExpect(jsonPath("$.page.page").value(0))
+        .andExpect(jsonPath("$.page.size").value(1))
+        .andExpect(jsonPath("$.page.totalElements").value(1))
+        .andExpect(jsonPath("$.page.totalPages").value(1));
+    org.assertj.core.api.Assertions.assertThat(second).isNotEqualTo(first);
+  }
+
+  @Test
+  void monitoringRejectsInvalidDateRangeAndTechnicianAccess() throws Exception {
+    UUID supervisor = insertUser("SUPERVISOR", "ACTIVE");
+    UUID technician = insertUser("TECHNICIAN", "ACTIVE");
+    OffsetDateTime from = OffsetDateTime.now(ZoneOffset.UTC).plusDays(2).withNano(0);
+    OffsetDateTime to = OffsetDateTime.now(ZoneOffset.UTC).plusDays(1).withNano(0);
+
+    mvc.perform(get("/api/v1/inspections").param("scheduledFrom", from.toString()).param("scheduledTo", to.toString())
+            .with(principal(supervisor, "SUPERVISOR")))
+        .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("INVALID_DATE_RANGE"));
+    mvc.perform(get("/api/v1/inspections").with(principal(technician, "TECHNICIAN")))
+        .andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value("ACCESS_DENIED"));
   }
 
   private String body(UUID version, UUID client, UUID site, UUID technician) {

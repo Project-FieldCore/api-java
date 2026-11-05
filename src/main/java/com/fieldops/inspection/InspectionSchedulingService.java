@@ -1,6 +1,7 @@
 package com.fieldops.inspection;
 
 import com.fieldops.shared.error.ApiException;
+import com.fieldops.shared.pagination.PageQuery;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.time.OffsetDateTime;
@@ -70,6 +71,33 @@ public class InspectionSchedulingService {
         (rs, row) -> mapInspection(rs), technicianId);
   }
 
+  /** Listagem administrativa paginada para acompanhamento (AC-ADMIN-MONITOR). */
+  public Page list(int page, int size, String sort, Status status, OffsetDateTime scheduledFrom,
+      OffsetDateTime scheduledTo, UUID technicianId, UUID clientId) {
+    if (scheduledFrom != null && scheduledTo != null && scheduledFrom.isAfter(scheduledTo)) {
+      throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_DATE_RANGE", "scheduledFrom must be before scheduledTo");
+    }
+    Timestamp from = scheduledFrom == null ? null : Timestamp.from(scheduledFrom.toInstant());
+    Timestamp to = scheduledTo == null ? null : Timestamp.from(scheduledTo.toInstant());
+    String where = " where (? is null or status=?) and (? is null or scheduled_for>=?) and (? is null or scheduled_for<=?)"
+        + " and (? is null or technician_id=?) and (? is null or client_id=?)";
+    Object[] filters = {status == null ? null : status.name(), status == null ? null : status.name(), from, from, to, to,
+        technicianId, technicianId, clientId, clientId};
+    long total = jdbc.queryForObject("select count(*) from inspection" + where, Long.class, filters);
+    List<Inspection> items = jdbc.query(
+        "select * from inspection" + where + " order by " + PageQuery.orderBy(sort,
+            java.util.Map.of("scheduledFor", "scheduled_for", "status", "status", "priority", "priority", "createdAt", "created_at"))
+            + " limit ? offset ?",
+        (rs, row) -> mapInspection(rs), concat(filters, size, page * size));
+    return new Page(items, new PageMeta(page, size, total, (int) Math.ceil((double) total / size)));
+  }
+
+  private static Object[] concat(Object[] values, Object... tail) {
+    Object[] result = java.util.Arrays.copyOf(values, values.length + tail.length);
+    System.arraycopy(tail, 0, result, values.length, tail.length);
+    return result;
+  }
+
   private PublishedVersion requirePublishedVersion(UUID versionId) {
     List<PublishedVersion> versions = jdbc.query("select id,title_snapshot from inspection_template_version where id=? and published_at is not null and active_for_new_inspections=true", (rs, row) -> new PublishedVersion(UUID.fromString(rs.getString("id")), rs.getString("title_snapshot")), versionId);
     if (versions.isEmpty()) throw new ApiException(HttpStatus.CONFLICT, "TEMPLATE_VERSION_NOT_PUBLISHED", "Inspection requires a published template version");
@@ -131,6 +159,8 @@ public class InspectionSchedulingService {
   public record AssignmentCommand(UUID technicianId, int version) {}
   public record CancellationCommand(String reason, int version) {}
   public record Inspection(UUID id, UUID clientId, UUID siteId, UUID templateVersionId, UUID technicianId, UUID supervisorId, String title, String instructions, Priority priority, Status status, Instant scheduledFor, int version, UUID canceledBy, Instant canceledAt, String canceledReason) {}
+  public record Page(List<Inspection> items, PageMeta page) {}
+  public record PageMeta(int page, int size, long totalElements, int totalPages) {}
   private record PublishedVersion(UUID id, String title) {}
   private record SnapshotSource(UUID sourceItemId, String sectionTitle, String sectionDescription, int sectionOrder, String code, String title, String description, String responseType, boolean required, boolean observationRequiredOnFailure, boolean evidenceRequiredOnFailure, String optionsJson, int itemOrder) {}
 }
