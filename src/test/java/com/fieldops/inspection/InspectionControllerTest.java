@@ -307,6 +307,29 @@ class InspectionControllerTest {
   }
 
   @Test
+  void technicianStoresCoordinatesWhenStartingAndCompleting() throws Exception {
+    UUID technician = insertUser("TECHNICIAN", "ACTIVE");
+    UUID supervisor = insertUser("SUPERVISOR", "ACTIVE");
+    UUID client = insertClient(); UUID site = insertSite(client); UUID version = insertPublishedVersion();
+    UUID inspection = insertInspection(version, client, site, technician, supervisor, "ASSIGNED", 0);
+    UUID item = insertSnapshot(inspection);
+
+    mvc.perform(post("/api/v1/inspections/my/{id}/start", inspection).with(principal(technician, "TECHNICIAN"))
+            .contentType("application/json").content("{\"startedAtDevice\":\"2026-11-05T14:00:00Z\",\"latitude\":-23.55052,\"longitude\":-46.633308}"))
+        .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("IN_PROGRESS"));
+    org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject("select started_latitude from inspection where id=?", java.math.BigDecimal.class, inspection)).isEqualByComparingTo("-23.5505200");
+
+    mvc.perform(post("/api/v1/inspections/my/{id}/start", inspection).with(principal(technician, "TECHNICIAN"))
+            .contentType("application/json").content("{\"latitude\":1}"))
+        .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("LOCATION_INVALID"));
+
+    mvc.perform(post("/api/v1/inspections/my/{id}/complete", inspection).with(principal(technician, "TECHNICIAN"))
+            .contentType("application/json").content("{\"version\":1,\"latitude\":-23.55,\"longitude\":-46.63,\"answers\":[{\"itemId\":\"" + item + "\",\"valueBoolean\":true}]}"))
+        .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("SUBMITTED"));
+    org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject("select completed_longitude from inspection where id=?", java.math.BigDecimal.class, inspection)).isEqualByComparingTo("-46.6300000");
+  }
+
+  @Test
   void technicianAttachesPhotoToTheChecklistItem() throws Exception {
     UUID technician = insertUser("TECHNICIAN", "ACTIVE");
     UUID supervisor = insertUser("SUPERVISOR", "ACTIVE");
