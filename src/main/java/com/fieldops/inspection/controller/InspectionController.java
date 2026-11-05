@@ -20,6 +20,7 @@ import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
@@ -36,6 +37,20 @@ public class InspectionController {
         body.templateVersionId(), body.clientId(), body.siteId(), body.technicianId(), body.scheduledFor(), body.title(),
         body.instructions(), body.priority() == null ? InspectionSchedulingService.Priority.MEDIUM : body.priority()), principal.userId());
     return ResponseEntity.status(201).body(inspection);
+  }
+
+  @GetMapping
+  @PreAuthorize("hasAnyRole('ADMIN','SUPERVISOR')")
+  public InspectionSchedulingService.Page list(
+      @RequestParam(defaultValue = "0") @Min(0) int page,
+      @RequestParam(defaultValue = "20") @Min(1) @jakarta.validation.constraints.Max(100) int size,
+      @RequestParam(defaultValue = "scheduledFor,asc") String sort,
+      @RequestParam(required = false) InspectionSchedulingService.Status status,
+      @RequestParam(required = false) @org.springframework.format.annotation.DateTimeFormat(iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE_TIME) OffsetDateTime scheduledFrom,
+      @RequestParam(required = false) @org.springframework.format.annotation.DateTimeFormat(iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE_TIME) OffsetDateTime scheduledTo,
+      @RequestParam(required = false) UUID technicianId,
+      @RequestParam(required = false) UUID clientId) {
+    return inspections.list(page, size, sort, status, scheduledFrom, scheduledTo, technicianId, clientId);
   }
 
   @PatchMapping("/{inspectionId}/assignee")
