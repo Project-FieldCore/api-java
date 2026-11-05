@@ -122,6 +122,39 @@ public class InspectionExecutionService {
   }
 
   @Transactional
+  public NonConformityRecord registerNonConformity(UUID inspectionId, UUID itemId, UUID technicianId, String severity, String description) {
+    AssignedInspection current = detail(inspectionId, technicianId);
+    if (current.status() != Status.IN_PROGRESS) {
+      throw new ApiException(HttpStatus.CONFLICT, "INSPECTION_NOT_IN_PROGRESS", "A nonconformity can be registered only after the inspection starts");
+    }
+    requireItem(inspectionId, itemId);
+    if (description == null || description.isBlank()) {
+      throw new ApiException(HttpStatus.BAD_REQUEST, "NC_DESCRIPTION_REQUIRED", "A nonconformity needs a description");
+    }
+    String normalized = severity == null ? "" : severity.trim().toUpperCase();
+    if (!List.of("LOW", "MEDIUM", "HIGH", "CRITICAL").contains(normalized)) {
+      throw new ApiException(HttpStatus.BAD_REQUEST, "NC_SEVERITY_INVALID", "Severity must be LOW, MEDIUM, HIGH or CRITICAL");
+    }
+    UUID responseId = ensureResponse(inspectionId, itemId, technicianId);
+    Integer evidence = jdbc.queryForObject("select count(*) from evidence where inspection_response_id=?", Integer.class, responseId);
+    if (evidence == null || evidence == 0) {
+      throw new ApiException(HttpStatus.CONFLICT, "NC_EVIDENCE_REQUIRED", "A nonconformity needs at least one photo on the item");
+    }
+    UUID id = UUID.randomUUID();
+    jdbc.update("insert into non_conformity (id,inspection_id,inspection_response_id,severity,description,status) values (?,?,?,?,?,?)",
+        id, inspectionId, responseId, normalized, description.trim(), "OPEN");
+    return new NonConformityRecord(id, itemId, normalized, description.trim(), "OPEN", Instant.now());
+  }
+
+  public List<NonConformityRecord> nonConformities(UUID inspectionId, UUID technicianId) {
+    detail(inspectionId, technicianId);
+    return jdbc.query(
+        "select n.id,r.inspection_item_id,n.severity,n.description,n.status,n.created_at from non_conformity n left join inspection_response r on r.id=n.inspection_response_id where n.inspection_id=? order by n.created_at,n.id",
+        (rs, row) -> new NonConformityRecord(UUID.fromString(rs.getString("id")), rs.getString("inspection_item_id") == null ? null : UUID.fromString(rs.getString("inspection_item_id")), rs.getString("severity"), rs.getString("description"), rs.getString("status"), rs.getTimestamp("created_at").toInstant()),
+        inspectionId);
+  }
+
+  @Transactional
   public ChecklistItem saveObservation(UUID inspectionId, UUID itemId, UUID technicianId, String observation) {
     AssignedInspection current = detail(inspectionId, technicianId);
     if (current.status() != Status.IN_PROGRESS) {
@@ -254,6 +287,7 @@ public class InspectionExecutionService {
   public record AnswerInput(UUID itemId, String valueText, BigDecimal valueNumber, Boolean valueBoolean, LocalDate valueDate, String conformity, String observation) {}
   public record CompleteCommand(int version, OffsetDateTime completedAtDevice, BigDecimal latitude, BigDecimal longitude, List<AnswerInput> answers) {}
   public record EvidenceFile(UUID id, UUID inspectionResponseId, UUID inspectionItemId, String fileName, String contentType, long sizeBytes, Instant createdAt) {}
+  public record NonConformityRecord(UUID id, UUID itemId, String severity, String description, String status, Instant createdAt) {}
   private record RuleRow(String title, boolean required, String rules, String valueText, BigDecimal valueNumber, Boolean valueBoolean, Date valueDate, String conformity, String observation, int evidenceCount) {
     boolean answered() {
       return (valueText != null && !valueText.isBlank()) || valueNumber != null || valueBoolean != null || valueDate != null || (conformity != null && !conformity.isBlank());

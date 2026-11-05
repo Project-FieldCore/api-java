@@ -132,6 +132,21 @@ public class InspectionController {
     return execution.saveObservation(inspectionId, itemId, principal.userId(), body.observation());
   }
 
+  @GetMapping("/my/{inspectionId}/non-conformities")
+  @PreAuthorize("hasRole('TECHNICIAN')")
+  public List<InspectionExecutionService.NonConformityRecord> nonConformities(
+      @PathVariable UUID inspectionId, @AuthenticationPrincipal FieldOpsUserPrincipal principal) {
+    return execution.nonConformities(inspectionId, principal.userId());
+  }
+
+  @PostMapping("/my/{inspectionId}/non-conformities")
+  @PreAuthorize("hasRole('TECHNICIAN')")
+  public ResponseEntity<InspectionExecutionService.NonConformityRecord> registerNonConformity(
+      @PathVariable UUID inspectionId, @Valid @RequestBody NonConformityRequest body,
+      @AuthenticationPrincipal FieldOpsUserPrincipal principal) {
+    return ResponseEntity.status(201).body(execution.registerNonConformity(inspectionId, body.itemId(), principal.userId(), body.severity(), body.description()));
+  }
+
   @PostMapping("/my/{inspectionId}/complete")
   @PreAuthorize("hasRole('TECHNICIAN')")
   public InspectionExecutionService.AssignedInspection complete(
@@ -153,5 +168,6 @@ public class InspectionController {
   public record StartInspectionRequest(OffsetDateTime startedAtDevice, @DecimalMin("-90.0") @DecimalMax("90.0") BigDecimal latitude, @DecimalMin("-180.0") @DecimalMax("180.0") BigDecimal longitude) {}
   public record ObservationRequest(@Size(max = 2000) String observation) {}
   public record CompleteInspectionRequest(@NotNull @Min(0) Integer version, OffsetDateTime completedAtDevice, @DecimalMin("-90.0") @DecimalMax("90.0") BigDecimal latitude, @DecimalMin("-180.0") @DecimalMax("180.0") BigDecimal longitude, List<AnswerRequest> answers) {}
+  public record NonConformityRequest(@NotNull UUID itemId, @NotBlank @Size(max = 32) String severity, @NotBlank @Size(max = 2000) String description) {}
   public record AnswerRequest(@NotNull UUID itemId, @Size(max = 4000) String valueText, BigDecimal valueNumber, Boolean valueBoolean, LocalDate valueDate, @Size(max = 32) String conformity, @Size(max = 2000) String observation) {}
 }
