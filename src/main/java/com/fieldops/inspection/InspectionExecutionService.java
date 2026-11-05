@@ -87,15 +87,16 @@ public class InspectionExecutionService {
   }
 
   @Transactional
-  public AssignedInspection start(UUID inspectionId, UUID technicianId, OffsetDateTime startedAtDevice) {
+  public AssignedInspection start(UUID inspectionId, UUID technicianId, OffsetDateTime startedAtDevice, BigDecimal latitude, BigDecimal longitude) {
+    requirePair(latitude, longitude);
     AssignedInspection current = detail(inspectionId, technicianId);
     if (current.status() == Status.IN_PROGRESS) return current;
     if (current.status() != Status.ASSIGNED) {
       throw new ApiException(HttpStatus.CONFLICT, "INSPECTION_NOT_STARTABLE", "Only an assigned inspection can be started");
     }
     Timestamp device = startedAtDevice == null ? null : Timestamp.from(startedAtDevice.toInstant());
-    jdbc.update("update inspection set status='IN_PROGRESS',started_at_server=current_timestamp,started_at_device=?,updated_at=current_timestamp,version=version+1 where id=? and technician_id=? and status='ASSIGNED'",
-        device, inspectionId, technicianId);
+    jdbc.update("update inspection set status='IN_PROGRESS',started_at_server=current_timestamp,started_at_device=?,started_latitude=?,started_longitude=?,updated_at=current_timestamp,version=version+1 where id=? and technician_id=? and status='ASSIGNED'",
+        device, latitude, longitude, inspectionId, technicianId);
     return detail(inspectionId, technicianId);
   }
 
@@ -150,9 +151,10 @@ public class InspectionExecutionService {
     if (!pending.isEmpty()) {
       throw new ApiException(HttpStatus.CONFLICT, "INSPECTION_INCOMPLETE", String.join("; ", pending));
     }
+    requirePair(command.latitude(), command.longitude());
     Timestamp device = command.completedAtDevice() == null ? null : Timestamp.from(command.completedAtDevice().toInstant());
-    int updated = jdbc.update("update inspection set status='SUBMITTED',completed_at_device=?,submitted_at_server=current_timestamp,updated_at=current_timestamp,version=version+1 where id=? and version=? and status='IN_PROGRESS'",
-        device, inspectionId, command.version());
+    int updated = jdbc.update("update inspection set status='SUBMITTED',completed_at_device=?,completed_latitude=?,completed_longitude=?,submitted_at_server=current_timestamp,updated_at=current_timestamp,version=version+1 where id=? and version=? and status='IN_PROGRESS'",
+        device, command.latitude(), command.longitude(), inspectionId, command.version());
     if (updated == 0) throw new ApiException(HttpStatus.CONFLICT, "VERSION_CONFLICT", "Inspection was modified by another request");
     return detail(inspectionId, technicianId);
   }
@@ -222,6 +224,12 @@ public class InspectionExecutionService {
         blankToNull(valueText), valueNumber, valueBoolean, valueDate == null ? null : Date.valueOf(valueDate), blankToNull(observation), conformity, technicianId, itemId);
   }
 
+  private static void requirePair(BigDecimal latitude, BigDecimal longitude) {
+    if ((latitude == null) != (longitude == null)) {
+      throw new ApiException(HttpStatus.BAD_REQUEST, "LOCATION_INVALID", "Latitude and longitude must be sent together");
+    }
+  }
+
   private static String blankToNull(String value) { return value == null || value.isBlank() ? null : value.trim(); }
 
   private static ApiException notFound() {
@@ -244,7 +252,7 @@ public class InspectionExecutionService {
   public record ChecklistSection(String title, int order, List<ChecklistItem> items) {}
   public record ChecklistItem(UUID id, String sectionTitle, int sectionOrder, String title, String description, String responseType, boolean required, String rulesJson, String optionsJson, int itemOrder, String observation, String valueText, String conformity) {}
   public record AnswerInput(UUID itemId, String valueText, BigDecimal valueNumber, Boolean valueBoolean, LocalDate valueDate, String conformity, String observation) {}
-  public record CompleteCommand(int version, OffsetDateTime completedAtDevice, List<AnswerInput> answers) {}
+  public record CompleteCommand(int version, OffsetDateTime completedAtDevice, BigDecimal latitude, BigDecimal longitude, List<AnswerInput> answers) {}
   public record EvidenceFile(UUID id, UUID inspectionResponseId, UUID inspectionItemId, String fileName, String contentType, long sizeBytes, Instant createdAt) {}
   private record RuleRow(String title, boolean required, String rules, String valueText, BigDecimal valueNumber, Boolean valueBoolean, Date valueDate, String conformity, String observation, int evidenceCount) {
     boolean answered() {
