@@ -113,6 +113,15 @@ public class InspectionController {
     return execution.start(inspectionId, principal.userId(), body == null ? null : body.startedAtDevice());
   }
 
+  @PostMapping(value = "/my/{inspectionId}/items/{itemId}/evidence", consumes = org.springframework.http.MediaType.MULTIPART_FORM_DATA_VALUE)
+  @PreAuthorize("hasRole('TECHNICIAN')")
+  public InspectionExecutionService.EvidenceFile uploadEvidence(
+      @PathVariable UUID inspectionId, @PathVariable UUID itemId,
+      @org.springframework.web.bind.annotation.RequestPart("file") org.springframework.web.multipart.MultipartFile file,
+      @AuthenticationPrincipal FieldOpsUserPrincipal principal) throws java.io.IOException {
+    return execution.uploadEvidence(inspectionId, itemId, principal.userId(), file.getOriginalFilename(), file.getContentType(), file.getBytes());
+  }
+
   @PutMapping("/my/{inspectionId}/items/{itemId}/observation")
   @PreAuthorize("hasRole('TECHNICIAN')")
   public InspectionExecutionService.ChecklistItem saveObservation(
