@@ -2,6 +2,7 @@ package com.fieldops.inspection;
 
 import com.fieldops.shared.error.ApiException;
 import java.math.BigDecimal;
+import java.nio.file.Path;
 import java.sql.Date;
 import java.sql.Timestamp;
 import java.time.Instant;
@@ -22,9 +23,14 @@ import org.springframework.transaction.annotation.Transactional;
  */
 @Service
 public class InspectionExecutionService {
+  private static final int MAX_EVIDENCE_BYTES = 5 * 1024 * 1024;
   private final JdbcTemplate jdbc;
+  private final EvidenceFileStore files;
 
-  public InspectionExecutionService(JdbcTemplate jdbc) { this.jdbc = jdbc; }
+  public InspectionExecutionService(JdbcTemplate jdbc, EvidenceFileStore files) {
+    this.jdbc = jdbc;
+    this.files = files;
+  }
 
   public List<AssignedInspection> assignedTo(UUID technicianId) {
     return jdbc.query(SELECT + " where i.technician_id=? and i.status in ('ASSIGNED','IN_PROGRESS') order by i.scheduled_for,i.id",
@@ -94,6 +100,27 @@ public class InspectionExecutionService {
   }
 
   @Transactional
+  public EvidenceFile uploadEvidence(UUID inspectionId, UUID itemId, UUID technicianId, String fileName, String contentType, byte[] bytes) {
+    AssignedInspection current = detail(inspectionId, technicianId);
+    if (current.status() != Status.IN_PROGRESS) {
+      throw new ApiException(HttpStatus.CONFLICT, "INSPECTION_NOT_IN_PROGRESS", "Evidence can be attached only after the inspection starts");
+    }
+    requireItem(inspectionId, itemId);
+    if (bytes == null || bytes.length == 0 || bytes.length > MAX_EVIDENCE_BYTES || !allowedImage(contentType)) {
+      throw new ApiException(HttpStatus.BAD_REQUEST, "EVIDENCE_INVALID", "Evidence must be a JPEG, PNG or WebP image up to 5 MB");
+    }
+    UUID responseId = ensureResponse(inspectionId, itemId, technicianId);
+    UUID evidenceId = UUID.randomUUID();
+    String safeName = fileName == null || fileName.isBlank() || Path.of(fileName).getFileName().toString().isBlank()
+        ? evidenceId + extension(contentType) : Path.of(fileName).getFileName().toString();
+    String storageKey = inspectionId + "/" + evidenceId + extension(contentType);
+    jdbc.update("insert into evidence (id,inspection_response_id,storage_key,file_name,content_type,size_bytes,created_by) values (?,?,?,?,?,?,?)",
+        evidenceId, responseId, storageKey, safeName, contentType, bytes.length, technicianId);
+    files.write(storageKey, bytes);
+    return new EvidenceFile(evidenceId, responseId, itemId, safeName, contentType, bytes.length, Instant.now());
+  }
+
+  @Transactional
   public ChecklistItem saveObservation(UUID inspectionId, UUID itemId, UUID technicianId, String observation) {
     AssignedInspection current = detail(inspectionId, technicianId);
     if (current.status() != Status.IN_PROGRESS) {
@@ -150,6 +177,27 @@ public class InspectionExecutionService {
     return pending;
   }
 
+  private UUID ensureResponse(UUID inspectionId, UUID itemId, UUID technicianId) {
+    List<UUID> existing = jdbc.query("select id from inspection_response where inspection_item_id=?", (rs, row) -> UUID.fromString(rs.getString("id")), itemId);
+    if (!existing.isEmpty()) return existing.getFirst();
+    UUID responseId = UUID.randomUUID();
+    jdbc.update("insert into inspection_response (id,inspection_id,inspection_item_id,answered_by,server_received_at) values (?,?,?,?,current_timestamp)",
+        responseId, inspectionId, itemId, technicianId);
+    return responseId;
+  }
+
+  private static boolean allowedImage(String contentType) {
+    return "image/jpeg".equals(contentType) || "image/png".equals(contentType) || "image/webp".equals(contentType);
+  }
+
+  private static String extension(String contentType) {
+    return switch (contentType) {
+      case "image/png" -> ".png";
+      case "image/webp" -> ".webp";
+      default -> ".jpg";
+    };
+  }
+
   private void requireItem(UUID inspectionId, UUID itemId) {
     Integer count = jdbc.queryForObject("select count(*) from inspection_item_snapshot where id=? and inspection_id=?", Integer.class, itemId, inspectionId);
     if (count == null || count == 0) throw notFound();
@@ -197,6 +245,7 @@ public class InspectionExecutionService {
   public record ChecklistItem(UUID id, String sectionTitle, int sectionOrder, String title, String description, String responseType, boolean required, String rulesJson, String optionsJson, int itemOrder, String observation, String valueText, String conformity) {}
   public record AnswerInput(UUID itemId, String valueText, BigDecimal valueNumber, Boolean valueBoolean, LocalDate valueDate, String conformity, String observation) {}
   public record CompleteCommand(int version, OffsetDateTime completedAtDevice, List<AnswerInput> answers) {}
+  public record EvidenceFile(UUID id, UUID inspectionResponseId, UUID inspectionItemId, String fileName, String contentType, long sizeBytes, Instant createdAt) {}
   private record RuleRow(String title, boolean required, String rules, String valueText, BigDecimal valueNumber, Boolean valueBoolean, Date valueDate, String conformity, String observation, int evidenceCount) {
     boolean answered() {
       return (valueText != null && !valueText.isBlank()) || valueNumber != null || valueBoolean != null || valueDate != null || (conformity != null && !conformity.isBlank());
