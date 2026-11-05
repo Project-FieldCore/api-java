@@ -2,6 +2,7 @@ package com.fieldops.inspection;
 
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -36,6 +37,9 @@ class InspectionControllerTest {
   }
 
   @AfterEach void clearDatabase() {
+    jdbc.update("delete from evidence");
+    jdbc.update("delete from non_conformity");
+    jdbc.update("delete from inspection_response");
     jdbc.update("delete from inspection_item_snapshot");
     jdbc.update("delete from inspection");
     jdbc.update("delete from template_item");
@@ -112,6 +116,51 @@ class InspectionControllerTest {
         .andExpect(jsonPath("$[0].priority").value("HIGH"))
         .andExpect(jsonPath("$[0].instructions").value(instructions))
         .andExpect(jsonPath("$[0].scheduledFor").value(scheduledFor.toInstant().toString()));
+  }
+
+  @Test
+  void technicianDownloadsDetailChecklistStartsAndCompletesOnlyWhenRulesPass() throws Exception {
+    UUID supervisor = insertUser("SUPERVISOR", "ACTIVE");
+    UUID technician = insertUser("TECHNICIAN", "ACTIVE");
+    UUID other = insertUser("TECHNICIAN", "ACTIVE");
+    UUID client = insertClient();
+    UUID site = insertSite(client);
+    UUID version = insertPublishedVersion();
+    jdbc.update("update template_item set required=true, response_type='CONFORMITY', observation_required_on_failure=true");
+    String created = mvc.perform(post("/api/v1/inspections").with(principal(supervisor, "SUPERVISOR")).contentType("application/json").content(body(version, client, site, technician)))
+        .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
+    UUID inspection = UUID.fromString(new com.fasterxml.jackson.databind.ObjectMapper().readTree(created).get("id").asText());
+    UUID item = jdbc.queryForObject("select id from inspection_item_snapshot where inspection_id=?", UUID.class, inspection);
+
+    mvc.perform(get("/api/v1/inspections/my").with(principal(technician, "TECHNICIAN")))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$[0].clientName").value("Client " + client))
+        .andExpect(jsonPath("$[0].siteName").value("Site " + site))
+        .andExpect(jsonPath("$[0].status").value("ASSIGNED"));
+    mvc.perform(get("/api/v1/inspections/my/{id}", inspection).with(principal(other, "TECHNICIAN")))
+        .andExpect(status().isNotFound()).andExpect(jsonPath("$.code").value("INSPECTION_NOT_FOUND"));
+    mvc.perform(get("/api/v1/inspections/my/{id}/checklist", inspection).with(principal(technician, "TECHNICIAN")))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$[0].items[0].responseType").value("CONFORMITY"))
+        .andExpect(jsonPath("$[0].items[0].required").value(true));
+
+    mvc.perform(post("/api/v1/inspections/my/{id}/start", inspection).with(principal(technician, "TECHNICIAN")).contentType("application/json").content("{\"startedAtDevice\":\"2026-11-05T14:00:00Z\"}"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.status").value("IN_PROGRESS"))
+        .andExpect(jsonPath("$.startedAt").exists());
+    mvc.perform(post("/api/v1/inspections/my/{id}/complete", inspection).with(principal(technician, "TECHNICIAN")).contentType("application/json").content("{\"version\":1}"))
+        .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("INSPECTION_INCOMPLETE"));
+    mvc.perform(post("/api/v1/inspections/my/{id}/complete", inspection).with(principal(technician, "TECHNICIAN")).contentType("application/json").content("{\"version\":1,\"answers\":[{\"itemId\":\"" + item + "\",\"conformity\":\"NON_CONFORMING\"}]}"))
+        .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("INSPECTION_INCOMPLETE"));
+    mvc.perform(put("/api/v1/inspections/my/{id}/items/{itemId}/observation", inspection, item).with(principal(technician, "TECHNICIAN")).contentType("application/json").content("{\"observation\":\"Vazamento na junta\"}"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.observation").value("Vazamento na junta"));
+    mvc.perform(post("/api/v1/inspections/my/{id}/complete", inspection).with(principal(technician, "TECHNICIAN")).contentType("application/json").content("{\"version\":1,\"answers\":[{\"itemId\":\"" + item + "\",\"conformity\":\"NON_CONFORMING\",\"observation\":\"Vazamento na junta\"}]}"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.status").value("SUBMITTED"));
+    mvc.perform(get("/api/v1/inspections/my").with(principal(technician, "TECHNICIAN")))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.length()").value(0));
   }
 
   @Test

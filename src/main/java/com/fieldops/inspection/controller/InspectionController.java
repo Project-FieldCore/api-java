@@ -1,5 +1,6 @@
 package com.fieldops.inspection.controller;
 
+import com.fieldops.inspection.InspectionExecutionService;
 import com.fieldops.inspection.InspectionSchedulingService;
 import com.fieldops.shared.security.FieldOpsUserPrincipal;
 import jakarta.validation.Valid;
@@ -8,6 +9,8 @@ import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
+import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.UUID;
@@ -15,10 +18,11 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -27,7 +31,11 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/v1/inspections")
 public class InspectionController {
   private final InspectionSchedulingService inspections;
-  public InspectionController(InspectionSchedulingService inspections) { this.inspections = inspections; }
+  private final InspectionExecutionService execution;
+  public InspectionController(InspectionSchedulingService inspections, InspectionExecutionService execution) {
+    this.inspections = inspections;
+    this.execution = execution;
+  }
 
   @PostMapping
   @PreAuthorize("hasAnyRole('ADMIN','SUPERVISOR')")
@@ -70,9 +78,50 @@ public class InspectionController {
 
   @GetMapping("/my")
   @PreAuthorize("hasRole('TECHNICIAN')")
-  public List<InspectionSchedulingService.Inspection> myAssignments(
+  public List<InspectionExecutionService.AssignedInspection> myAssignments(
       @AuthenticationPrincipal FieldOpsUserPrincipal principal) {
-    return inspections.assignedTo(principal.userId());
+    return execution.assignedTo(principal.userId());
+  }
+
+  @GetMapping("/my/{inspectionId}")
+  @PreAuthorize("hasRole('TECHNICIAN')")
+  public InspectionExecutionService.AssignedInspection myInspection(
+      @PathVariable UUID inspectionId, @AuthenticationPrincipal FieldOpsUserPrincipal principal) {
+    return execution.detail(inspectionId, principal.userId());
+  }
+
+  @GetMapping("/my/{inspectionId}/checklist")
+  @PreAuthorize("hasRole('TECHNICIAN')")
+  public List<InspectionExecutionService.ChecklistSection> checklist(
+      @PathVariable UUID inspectionId, @AuthenticationPrincipal FieldOpsUserPrincipal principal) {
+    return execution.checklist(inspectionId, principal.userId());
+  }
+
+  @PostMapping("/my/{inspectionId}/start")
+  @PreAuthorize("hasRole('TECHNICIAN')")
+  public InspectionExecutionService.AssignedInspection start(
+      @PathVariable UUID inspectionId, @RequestBody(required = false) StartInspectionRequest body,
+      @AuthenticationPrincipal FieldOpsUserPrincipal principal) {
+    return execution.start(inspectionId, principal.userId(), body == null ? null : body.startedAtDevice());
+  }
+
+  @PutMapping("/my/{inspectionId}/items/{itemId}/observation")
+  @PreAuthorize("hasRole('TECHNICIAN')")
+  public InspectionExecutionService.ChecklistItem saveObservation(
+      @PathVariable UUID inspectionId, @PathVariable UUID itemId, @Valid @RequestBody ObservationRequest body,
+      @AuthenticationPrincipal FieldOpsUserPrincipal principal) {
+    return execution.saveObservation(inspectionId, itemId, principal.userId(), body.observation());
+  }
+
+  @PostMapping("/my/{inspectionId}/complete")
+  @PreAuthorize("hasRole('TECHNICIAN')")
+  public InspectionExecutionService.AssignedInspection complete(
+      @PathVariable UUID inspectionId, @Valid @RequestBody CompleteInspectionRequest body,
+      @AuthenticationPrincipal FieldOpsUserPrincipal principal) {
+    List<InspectionExecutionService.AnswerInput> answers = body.answers() == null ? List.of() : body.answers().stream()
+        .map(answer -> new InspectionExecutionService.AnswerInput(answer.itemId(), answer.valueText(), answer.valueNumber(), answer.valueBoolean(), answer.valueDate(), answer.conformity(), answer.observation()))
+        .toList();
+    return execution.complete(inspectionId, principal.userId(), new InspectionExecutionService.CompleteCommand(body.version(), body.completedAtDevice(), answers));
   }
 
   public record ScheduleInspectionRequest(@NotNull UUID templateVersionId, @NotNull UUID clientId, @NotNull UUID siteId,
@@ -81,4 +130,8 @@ public class InspectionController {
                                           InspectionSchedulingService.Priority priority) {}
   public record AssignTechnicianRequest(@NotNull UUID technicianId, @NotNull @jakarta.validation.constraints.Min(0) Integer version) {}
   public record CancelInspectionRequest(@NotBlank @Size(max = 1000) String reason, @NotNull @Min(0) Integer version) {}
+  public record StartInspectionRequest(OffsetDateTime startedAtDevice) {}
+  public record ObservationRequest(@Size(max = 2000) String observation) {}
+  public record CompleteInspectionRequest(@NotNull @Min(0) Integer version, OffsetDateTime completedAtDevice, List<AnswerRequest> answers) {}
+  public record AnswerRequest(@NotNull UUID itemId, @Size(max = 4000) String valueText, BigDecimal valueNumber, Boolean valueBoolean, LocalDate valueDate, @Size(max = 32) String conformity, @Size(max = 2000) String observation) {}
 }
