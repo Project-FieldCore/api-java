@@ -97,6 +97,14 @@ public class InspectionController {
     return execution.checklist(inspectionId, principal.userId());
   }
 
+  @PostMapping("/my/{inspectionId}/confirm-equipment")
+  @PreAuthorize("hasRole('TECHNICIAN')")
+  public InspectionExecutionService.AssignedInspection confirmEquipment(
+      @PathVariable UUID inspectionId, @Valid @RequestBody ConfirmEquipmentRequest body,
+      @AuthenticationPrincipal FieldOpsUserPrincipal principal) {
+    return execution.confirmEquipment(inspectionId, principal.userId(), body.qrCode());
+  }
+
   @PostMapping("/my/{inspectionId}/start")
   @PreAuthorize("hasRole('TECHNICIAN')")
   public InspectionExecutionService.AssignedInspection start(
@@ -130,6 +138,7 @@ public class InspectionController {
                                           InspectionSchedulingService.Priority priority) {}
   public record AssignTechnicianRequest(@NotNull UUID technicianId, @NotNull @jakarta.validation.constraints.Min(0) Integer version) {}
   public record CancelInspectionRequest(@NotBlank @Size(max = 1000) String reason, @NotNull @Min(0) Integer version) {}
+  public record ConfirmEquipmentRequest(@NotBlank @Size(max = 255) String qrCode) {}
   public record StartInspectionRequest(OffsetDateTime startedAtDevice) {}
   public record ObservationRequest(@Size(max = 2000) String observation) {}
   public record CompleteInspectionRequest(@NotNull @Min(0) Integer version, OffsetDateTime completedAtDevice, List<AnswerRequest> answers) {}

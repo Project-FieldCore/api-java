@@ -52,6 +52,35 @@ public class InspectionExecutionService {
   }
 
   @Transactional
+  public AssignedInspection confirmEquipment(UUID inspectionId, UUID technicianId, String qrCode) {
+    AssignedInspection current = detail(inspectionId, technicianId);
+    if (current.status() != Status.ASSIGNED && current.status() != Status.IN_PROGRESS) {
+      throw new ApiException(HttpStatus.CONFLICT, "INSPECTION_NOT_CONFIRMABLE", "Equipment can be confirmed only while the inspection is assigned or in progress");
+    }
+    List<EquipmentMatch> matches = jdbc.query(
+        "select id, site_id, status from equipment where qr_code=?",
+        (rs, row) -> new EquipmentMatch(UUID.fromString(rs.getString("id")), UUID.fromString(rs.getString("site_id")), rs.getString("status")),
+        qrCode.trim());
+    if (matches.isEmpty()) {
+      throw new ApiException(HttpStatus.NOT_FOUND, "EQUIPMENT_NOT_FOUND", "Equipment not found");
+    }
+    EquipmentMatch equipment = matches.getFirst();
+    if (!"ACTIVE".equals(equipment.status())) {
+      throw new ApiException(HttpStatus.CONFLICT, "EQUIPMENT_NOT_ACTIVE", "Only an active equipment can be confirmed");
+    }
+    InspectionLink link = jdbc.query(
+        "select site_id, equipment_id from inspection where id=?",
+        (rs, row) -> new InspectionLink(UUID.fromString(rs.getString("site_id")), rs.getString("equipment_id") == null ? null : UUID.fromString(rs.getString("equipment_id"))),
+        inspectionId).getFirst();
+    if (!link.siteId().equals(equipment.siteId()) || (link.equipmentId() != null && !link.equipmentId().equals(equipment.id()))) {
+      throw new ApiException(HttpStatus.CONFLICT, "EQUIPMENT_MISMATCH", "The QR code does not match the equipment of this inspection");
+    }
+    jdbc.update("update inspection set equipment_id=?, equipment_confirmed_at=current_timestamp, updated_at=current_timestamp, version=version+1 where id=? and technician_id=?",
+        equipment.id(), inspectionId, technicianId);
+    return detail(inspectionId, technicianId);
+  }
+
+  @Transactional
   public AssignedInspection start(UUID inspectionId, UUID technicianId, OffsetDateTime startedAtDevice) {
     AssignedInspection current = detail(inspectionId, technicianId);
     if (current.status() == Status.IN_PROGRESS) return current;
@@ -153,14 +182,17 @@ public class InspectionExecutionService {
 
   private static AssignedInspection mapAssigned(java.sql.ResultSet rs) throws java.sql.SQLException {
     Timestamp started = rs.getTimestamp("started_at_server");
-    return new AssignedInspection(UUID.fromString(rs.getString("id")), rs.getString("client_name"), rs.getString("site_name"), rs.getString("equipment_name"), rs.getString("title"), rs.getString("instructions"), InspectionSchedulingService.Priority.valueOf(rs.getString("priority")), Status.valueOf(rs.getString("status")), rs.getTimestamp("scheduled_for").toInstant(), started == null ? null : started.toInstant(), rs.getInt("version"));
+    Timestamp confirmed = rs.getTimestamp("equipment_confirmed_at");
+    return new AssignedInspection(UUID.fromString(rs.getString("id")), rs.getString("client_name"), rs.getString("site_name"), rs.getString("equipment_name"), rs.getString("title"), rs.getString("instructions"), InspectionSchedulingService.Priority.valueOf(rs.getString("priority")), Status.valueOf(rs.getString("status")), rs.getTimestamp("scheduled_for").toInstant(), started == null ? null : started.toInstant(), rs.getInt("version"), confirmed == null ? null : confirmed.toInstant());
   }
 
-  private static final String SELECT = "select i.id,i.title,i.instructions,i.priority,i.status,i.scheduled_for,i.started_at_server,i.version,c.name as client_name,s.name as site_name,e.name as equipment_name from inspection i join client c on c.id=i.client_id join inspection_site s on s.id=i.site_id left join equipment e on e.id=i.equipment_id";
+  private static final String SELECT = "select i.id,i.title,i.instructions,i.priority,i.status,i.scheduled_for,i.started_at_server,i.version,i.equipment_confirmed_at,c.name as client_name,s.name as site_name,e.name as equipment_name from inspection i join client c on c.id=i.client_id join inspection_site s on s.id=i.site_id left join equipment e on e.id=i.equipment_id";
 
   public enum Status { ASSIGNED, IN_PROGRESS, SUBMITTED }
 
-  public record AssignedInspection(UUID id, String clientName, String siteName, String equipmentName, String title, String instructions, InspectionSchedulingService.Priority priority, Status status, Instant scheduledFor, Instant startedAt, int version) {}
+  public record AssignedInspection(UUID id, String clientName, String siteName, String equipmentName, String title, String instructions, InspectionSchedulingService.Priority priority, Status status, Instant scheduledFor, Instant startedAt, int version, Instant equipmentConfirmedAt) {}
+  private record EquipmentMatch(UUID id, UUID siteId, String status) {}
+  private record InspectionLink(UUID siteId, UUID equipmentId) {}
   public record ChecklistSection(String title, int order, List<ChecklistItem> items) {}
   public record ChecklistItem(UUID id, String sectionTitle, int sectionOrder, String title, String description, String responseType, boolean required, String rulesJson, String optionsJson, int itemOrder, String observation, String valueText, String conformity) {}
   public record AnswerInput(UUID itemId, String valueText, BigDecimal valueNumber, Boolean valueBoolean, LocalDate valueDate, String conformity, String observation) {}
