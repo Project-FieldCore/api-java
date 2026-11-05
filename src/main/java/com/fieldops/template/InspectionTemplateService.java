@@ -82,7 +82,9 @@ public class InspectionTemplateService {
   public Template publish(UUID id, PublishCommand command, UUID publishedBy) {
     Template current = get(id);
     if (current.status() != Status.DRAFT || current.draftVersionId() == null) throw notEditable();
-    if (!hasPublishableContent(current.draftVersionId())) throw invalidForPublication();
+    if (isBlank(current.title()) || isBlank(current.category()) || !hasPublishableContent(current.draftVersionId())) {
+      throw invalidForPublication();
+    }
     int updated = jdbc.update("update inspection_template set status='ACTIVE',current_version=?,updated_at=current_timestamp,version=version+1 where id=? and version=? and status='DRAFT'",
         versionNumber(current.draftVersionId()), id, command.version());
     if (updated == 0) throw versionConflict();
@@ -142,7 +144,12 @@ public class InspectionTemplateService {
   private static ApiException notFound() { return new ApiException(HttpStatus.NOT_FOUND, "INSPECTION_TEMPLATE_NOT_FOUND", "Inspection template not found"); }
   private static ApiException titleConflict() { return new ApiException(HttpStatus.CONFLICT, "TEMPLATE_TITLE_ALREADY_EXISTS", "An inspection template with this title already exists"); }
   private static ApiException notEditable() { return new ApiException(HttpStatus.CONFLICT, "TEMPLATE_NOT_EDITABLE", "Only draft inspection templates can be edited"); }
-  private static ApiException invalidForPublication() { return new ApiException(HttpStatus.CONFLICT, "TEMPLATE_NOT_PUBLISHABLE", "A template requires at least one section and one typed item before publication"); }
+  private static boolean isBlank(String value) { return value == null || value.isBlank(); }
+
+  private static ApiException invalidForPublication() {
+    return new ApiException(HttpStatus.CONFLICT, "TEMPLATE_NOT_PUBLISHABLE",
+        "A template requires a title, a category, at least one section and one typed item before publication");
+  }
   private static ApiException versionConflict() { return new ApiException(HttpStatus.CONFLICT, "VERSION_CONFLICT", "Inspection template was modified by another request"); }
 
   public enum Status { DRAFT, ACTIVE, INACTIVE }
