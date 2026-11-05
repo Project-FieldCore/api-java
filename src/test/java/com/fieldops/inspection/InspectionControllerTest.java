@@ -1,6 +1,7 @@
 package com.fieldops.inspection;
 
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
@@ -22,6 +23,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.test.web.servlet.MockMvc;
@@ -305,6 +307,31 @@ class InspectionControllerTest {
   }
 
   @Test
+  void technicianAttachesPhotoToTheChecklistItem() throws Exception {
+    UUID technician = insertUser("TECHNICIAN", "ACTIVE");
+    UUID supervisor = insertUser("SUPERVISOR", "ACTIVE");
+    UUID client = insertClient(); UUID site = insertSite(client); UUID version = insertPublishedVersion();
+    UUID inspection = insertInspection(version, client, site, technician, supervisor, "IN_PROGRESS", 1);
+    UUID item = insertSnapshot(inspection);
+    MockMultipartFile photo = new MockMultipartFile("file", "foto.jpg", "image/jpeg", new byte[] {1, 2, 3, 4});
+
+    mvc.perform(multipart("/api/v1/inspections/my/{inspectionId}/items/{itemId}/evidence", inspection, item)
+            .file(photo).with(principal(technician, "TECHNICIAN")))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.inspectionItemId").value(item.toString()))
+        .andExpect(jsonPath("$.fileName").value("foto.jpg"))
+        .andExpect(jsonPath("$.contentType").value("image/jpeg"))
+        .andExpect(jsonPath("$.sizeBytes").value(4));
+    Integer count = jdbc.queryForObject("select count(*) from evidence e join inspection_response r on r.id=e.inspection_response_id where r.inspection_item_id=?", Integer.class, item);
+    org.assertj.core.api.Assertions.assertThat(count).isEqualTo(1);
+
+    MockMultipartFile text = new MockMultipartFile("file", "nota.txt", "text/plain", "nao".getBytes());
+    mvc.perform(multipart("/api/v1/inspections/my/{inspectionId}/items/{itemId}/evidence", inspection, item)
+            .file(text).with(principal(technician, "TECHNICIAN")))
+        .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("EVIDENCE_INVALID"));
+  }
+
+  @Test
   void technicianConfirmsEquipmentByQrAndRejectsAMismatch() throws Exception {
     UUID technician = insertUser("TECHNICIAN", "ACTIVE");
     UUID supervisor = insertUser("SUPERVISOR", "ACTIVE");
@@ -346,6 +373,7 @@ class InspectionControllerTest {
   private UUID insertPublishedVersion() { return insertVersion(true); }
   private UUID insertInspection(UUID version, UUID client, UUID site, UUID technician, UUID supervisor, String status, int versionNumber) { UUID id=UUID.randomUUID(); jdbc.update("insert into inspection (id,client_id,site_id,template_version_id,technician_id,supervisor_id,created_by,title,priority,status,scheduled_for,version) values (?,?,?,?,?,?,?,?,?,?,?,?)", id, client, site, version, technician, supervisor, supervisor, "Inspection", "MEDIUM", status, java.sql.Timestamp.from(java.time.Instant.now().plusSeconds(3600)), versionNumber); return id; }
   private UUID insertEquipment(UUID siteId, String qrCode, String status) { UUID id = UUID.randomUUID(); jdbc.update("insert into equipment (id,site_id,name,qr_code,status) values (?,?,?,?,?)", id, siteId, "Pump", qrCode, status); return id; }
+  private UUID insertSnapshot(UUID inspectionId) { UUID id = UUID.randomUUID(); jdbc.update("insert into inspection_item_snapshot (id,inspection_id,section_title,section_order,item_title,response_type,required,item_order) values (?,?,?,?,?,?,?,?)", id, inspectionId, "Secao", 0, "Item", "CONFORMITY", true, 0); return id; }
   private UUID insertVersion(boolean published) { UUID template=UUID.randomUUID(); UUID version=UUID.randomUUID(); jdbc.update("insert into inspection_template (id,title,category,status,version) values (?,?,?,?,0)", template, "Template " + template, "SAFETY", "ACTIVE"); jdbc.update("insert into inspection_template_version (id,template_id,version_number,title_snapshot,published_at,active_for_new_inspections) values (?,?,?,?,?,?)", version, template, 1, "Published template", published ? java.sql.Timestamp.from(java.time.Instant.now()) : null, published); if (published) { UUID section=UUID.randomUUID(); jdbc.update("insert into template_section (id,template_version_id,title,display_order) values (?,?,?,0)", section, version, "Section"); jdbc.update("insert into template_item (id,section_id,title,response_type,display_order) values (?,?,?,?,0)", UUID.randomUUID(), section, "Item", "BOOLEAN"); } return version; }
   private static org.springframework.test.web.servlet.request.RequestPostProcessor principal(UUID id, String role) { var principal=new FieldOpsUserPrincipal(id, Set.of(Role.valueOf(role)), Set.of()); return authentication(new UsernamePasswordAuthenticationToken(principal, null, List.of(new SimpleGrantedAuthority("ROLE_" + role)))); }
 }
