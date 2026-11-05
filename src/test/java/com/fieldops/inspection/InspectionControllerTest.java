@@ -307,6 +307,31 @@ class InspectionControllerTest {
   }
 
   @Test
+  void technicianRegistersNonConformityOnlyWhenTheItemHasEvidence() throws Exception {
+    UUID technician = insertUser("TECHNICIAN", "ACTIVE");
+    UUID supervisor = insertUser("SUPERVISOR", "ACTIVE");
+    UUID client = insertClient(); UUID site = insertSite(client); UUID version = insertPublishedVersion();
+    UUID inspection = insertInspection(version, client, site, technician, supervisor, "IN_PROGRESS", 1);
+    UUID item = insertSnapshot(inspection);
+    UUID bare = insertSnapshot(inspection);
+    UUID response = UUID.randomUUID();
+    jdbc.update("insert into inspection_response (id,inspection_id,inspection_item_id,conformity,answered_by) values (?,?,?,?,?)", response, inspection, item, "NON_CONFORMING", technician);
+    jdbc.update("insert into evidence (id,inspection_response_id,storage_key,file_name,content_type,size_bytes,created_by) values (?,?,?,?,?,?,?)", UUID.randomUUID(), response, inspection + "/foto.jpg", "foto.jpg", "image/jpeg", 4, technician);
+
+    mvc.perform(post("/api/v1/inspections/my/{id}/non-conformities", inspection).with(principal(technician, "TECHNICIAN"))
+            .contentType("application/json").content("{\"itemId\":\"" + item + "\",\"severity\":\"HIGH\",\"description\":\"Proteção ausente\"}"))
+        .andExpect(status().isCreated()).andExpect(jsonPath("$.severity").value("HIGH")).andExpect(jsonPath("$.status").value("OPEN"));
+    mvc.perform(get("/api/v1/inspections/my/{id}/non-conformities", inspection).with(principal(technician, "TECHNICIAN")))
+        .andExpect(status().isOk()).andExpect(jsonPath("$[0].itemId").value(item.toString()));
+    mvc.perform(post("/api/v1/inspections/my/{id}/non-conformities", inspection).with(principal(technician, "TECHNICIAN"))
+            .contentType("application/json").content("{\"itemId\":\"" + bare + "\",\"severity\":\"LOW\",\"description\":\"Sem foto\"}"))
+        .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("NC_EVIDENCE_REQUIRED"));
+    mvc.perform(post("/api/v1/inspections/my/{id}/non-conformities", inspection).with(principal(technician, "TECHNICIAN"))
+            .contentType("application/json").content("{\"itemId\":\"" + item + "\",\"severity\":\"URGENT\",\"description\":\"Proteção ausente\"}"))
+        .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("NC_SEVERITY_INVALID"));
+  }
+
+  @Test
   void technicianStoresCoordinatesWhenStartingAndCompleting() throws Exception {
     UUID technician = insertUser("TECHNICIAN", "ACTIVE");
     UUID supervisor = insertUser("SUPERVISOR", "ACTIVE");
