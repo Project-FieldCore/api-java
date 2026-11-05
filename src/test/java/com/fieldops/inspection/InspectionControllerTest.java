@@ -10,6 +10,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.fieldops.shared.security.FieldOpsUserPrincipal;
 import com.fieldops.shared.security.Role;
 import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
@@ -57,14 +58,60 @@ class InspectionControllerTest {
     UUID version = insertPublishedVersion();
     String body = body(version, client, site, technician);
 
-    mvc.perform(post("/api/v1/inspections").with(principal(supervisor, "SUPERVISOR")).contentType("application/json").content(body))
+    String response = mvc.perform(post("/api/v1/inspections").with(principal(supervisor, "SUPERVISOR")).contentType("application/json").content(body))
         .andExpect(status().isCreated())
         .andExpect(jsonPath("$.status").value("ASSIGNED"))
         .andExpect(jsonPath("$.clientId").value(client.toString()))
         .andExpect(jsonPath("$.siteId").value(site.toString()))
-        .andExpect(jsonPath("$.technicianId").value(technician.toString()));
+        .andExpect(jsonPath("$.technicianId").value(technician.toString())).andReturn().getResponse().getContentAsString();
+    UUID inspection = UUID.fromString(new com.fasterxml.jackson.databind.ObjectMapper().readTree(response).get("id").asText());
     Integer snapshots = jdbc.queryForObject("select count(*) from inspection_item_snapshot", Integer.class);
     org.assertj.core.api.Assertions.assertThat(snapshots).isEqualTo(1);
+    String snapshotTitle = jdbc.queryForObject("select item_title from inspection_item_snapshot where inspection_id=?", String.class, inspection);
+    String rules = jdbc.queryForObject("select rules_json from inspection_item_snapshot where inspection_id=?", String.class, inspection);
+    jdbc.update("update template_item set title='Changed after scheduling'");
+    org.assertj.core.api.Assertions.assertThat(snapshotTitle).isEqualTo("Item");
+    org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject("select item_title from inspection_item_snapshot where inspection_id=?", String.class, inspection)).isEqualTo("Item");
+    org.assertj.core.api.Assertions.assertThat(rules).contains("observationRequiredOnFailure");
+  }
+
+  @Test
+  void priorityDeadlineAndInstructionsArePersistedAndReturnedToTechnician() throws Exception {
+    UUID supervisor = insertUser("SUPERVISOR", "ACTIVE");
+    UUID technician = insertUser("TECHNICIAN", "ACTIVE");
+    UUID client = insertClient();
+    UUID site = insertSite(client);
+    UUID version = insertPublishedVersion();
+    OffsetDateTime scheduledFor = OffsetDateTime.now().plusDays(2).withNano(0);
+    String instructions = "Use EPI e registre fotos do painel.";
+    String body = "{\"templateVersionId\":\"" + version + "\",\"clientId\":\"" + client
+        + "\",\"siteId\":\"" + site + "\",\"technicianId\":\"" + technician
+        + "\",\"scheduledFor\":\"" + scheduledFor + "\",\"priority\":\"HIGH\",\"instructions\":\""
+        + instructions + "\"}";
+
+    String response = mvc.perform(post("/api/v1/inspections").with(principal(supervisor, "SUPERVISOR"))
+            .contentType("application/json").content(body))
+        .andExpect(status().isCreated())
+        .andExpect(jsonPath("$.priority").value("HIGH"))
+        .andExpect(jsonPath("$.instructions").value(instructions))
+        .andExpect(jsonPath("$.scheduledFor").value(scheduledFor.toInstant().toString()))
+        .andReturn().getResponse().getContentAsString();
+
+    UUID inspectionId = UUID.fromString(new com.fasterxml.jackson.databind.ObjectMapper().readTree(response).get("id").asText());
+    org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject(
+        "select priority from inspection where id=?", String.class, inspectionId)).isEqualTo("HIGH");
+    org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject(
+        "select instructions from inspection where id=?", String.class, inspectionId)).isEqualTo(instructions);
+    org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject(
+        "select scheduled_for from inspection where id=?", java.sql.Timestamp.class, inspectionId).toInstant())
+        .isEqualTo(scheduledFor.toInstant());
+
+    mvc.perform(get("/api/v1/inspections/my").with(principal(technician, "TECHNICIAN")))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$[0].id").value(inspectionId.toString()))
+        .andExpect(jsonPath("$[0].priority").value("HIGH"))
+        .andExpect(jsonPath("$[0].instructions").value(instructions))
+        .andExpect(jsonPath("$[0].scheduledFor").value(scheduledFor.toInstant().toString()));
   }
 
   @Test
@@ -120,6 +167,91 @@ class InspectionControllerTest {
         .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("TECHNICIAN_NOT_ACTIVE"));
     mvc.perform(patch("/api/v1/inspections/{inspectionId}/assignee", inspection).with(principal(technician, "TECHNICIAN"))
             .contentType("application/json").content("{\"technicianId\":\"" + technician + "\",\"version\":0}"))
+        .andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value("ACCESS_DENIED"));
+  }
+
+  @Test
+  void supervisorCancelsInspectionWithReasonAndAuditData() throws Exception {
+    UUID supervisor = insertUser("SUPERVISOR", "ACTIVE");
+    UUID technician = insertUser("TECHNICIAN", "ACTIVE");
+    UUID client = insertClient(); UUID site = insertSite(client); UUID templateVersion = insertPublishedVersion();
+    UUID inspection = insertInspection(templateVersion, client, site, technician, supervisor, "ASSIGNED", 0);
+    String reason = "Acesso ao local foi suspenso pelo cliente.";
+
+    mvc.perform(patch("/api/v1/inspections/{inspectionId}/cancel", inspection).with(principal(supervisor, "SUPERVISOR"))
+            .contentType("application/json").content("{\"reason\":\"" + reason + "\",\"version\":0}"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.status").value("CANCELED"))
+        .andExpect(jsonPath("$.canceledBy").value(supervisor.toString()))
+        .andExpect(jsonPath("$.canceledReason").value(reason))
+        .andExpect(jsonPath("$.canceledAt").exists())
+        .andExpect(jsonPath("$.version").value(1));
+
+    org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject("select status from inspection where id=?", String.class, inspection))
+        .isEqualTo("CANCELED");
+    org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject("select canceled_by from inspection where id=?", UUID.class, inspection))
+        .isEqualTo(supervisor);
+    org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject("select canceled_reason from inspection where id=?", String.class, inspection))
+        .isEqualTo(reason);
+    org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject("select canceled_at from inspection where id=?", java.sql.Timestamp.class, inspection))
+        .isNotNull();
+  }
+
+  @Test
+  void approvedInspectionCannotBeCanceledAndInvalidReasonUsesStandardError() throws Exception {
+    UUID supervisor = insertUser("SUPERVISOR", "ACTIVE");
+    UUID technician = insertUser("TECHNICIAN", "ACTIVE");
+    UUID client = insertClient(); UUID site = insertSite(client); UUID templateVersion = insertPublishedVersion();
+    UUID approved = insertInspection(templateVersion, client, site, technician, supervisor, "APPROVED", 0);
+    UUID assigned = insertInspection(templateVersion, client, site, technician, supervisor, "ASSIGNED", 0);
+
+    mvc.perform(patch("/api/v1/inspections/{inspectionId}/cancel", approved).with(principal(supervisor, "SUPERVISOR"))
+            .contentType("application/json").content("{\"reason\":\"Cancelamento\",\"version\":0}"))
+        .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("INSPECTION_CANNOT_BE_CANCELED"));
+    mvc.perform(patch("/api/v1/inspections/{inspectionId}/cancel", assigned).with(principal(supervisor, "SUPERVISOR"))
+            .contentType("application/json").content("{\"reason\":\"   \",\"version\":0}"))
+        .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+  }
+
+  @Test
+  void supervisorListsInspectionsWithPaginationAndExplicitFilters() throws Exception {
+    UUID supervisor = insertUser("SUPERVISOR", "ACTIVE");
+    UUID technicianOne = insertUser("TECHNICIAN", "ACTIVE");
+    UUID technicianTwo = insertUser("TECHNICIAN", "ACTIVE");
+    UUID clientOne = insertClient(); UUID clientTwo = insertClient();
+    UUID version = insertPublishedVersion();
+    UUID first = insertInspection(version, clientOne, insertSite(clientOne), technicianOne, supervisor, "ASSIGNED", 0);
+    UUID second = insertInspection(version, clientOne, insertSite(clientOne), technicianTwo, supervisor, "CANCELED", 0);
+    insertInspection(version, clientTwo, insertSite(clientTwo), technicianOne, supervisor, "ASSIGNED", 0);
+    OffsetDateTime from = OffsetDateTime.now(ZoneOffset.UTC).minusMinutes(1).withNano(0);
+    OffsetDateTime to = OffsetDateTime.now(ZoneOffset.UTC).plusDays(1).withNano(0);
+
+    mvc.perform(get("/api/v1/inspections")
+            .param("status", "ASSIGNED").param("clientId", clientOne.toString()).param("technicianId", technicianOne.toString())
+            .param("scheduledFrom", from.toString()).param("scheduledTo", to.toString())
+            .param("page", "0").param("size", "1").param("sort", "scheduledFor,asc")
+            .with(principal(supervisor, "SUPERVISOR")))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.items.length()").value(1))
+        .andExpect(jsonPath("$.items[0].id").value(first.toString()))
+        .andExpect(jsonPath("$.page.page").value(0))
+        .andExpect(jsonPath("$.page.size").value(1))
+        .andExpect(jsonPath("$.page.totalElements").value(1))
+        .andExpect(jsonPath("$.page.totalPages").value(1));
+    org.assertj.core.api.Assertions.assertThat(second).isNotEqualTo(first);
+  }
+
+  @Test
+  void monitoringRejectsInvalidDateRangeAndTechnicianAccess() throws Exception {
+    UUID supervisor = insertUser("SUPERVISOR", "ACTIVE");
+    UUID technician = insertUser("TECHNICIAN", "ACTIVE");
+    OffsetDateTime from = OffsetDateTime.now(ZoneOffset.UTC).plusDays(2).withNano(0);
+    OffsetDateTime to = OffsetDateTime.now(ZoneOffset.UTC).plusDays(1).withNano(0);
+
+    mvc.perform(get("/api/v1/inspections").param("scheduledFrom", from.toString()).param("scheduledTo", to.toString())
+            .with(principal(supervisor, "SUPERVISOR")))
+        .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("INVALID_DATE_RANGE"));
+    mvc.perform(get("/api/v1/inspections").with(principal(technician, "TECHNICIAN")))
         .andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value("ACCESS_DENIED"));
   }
 

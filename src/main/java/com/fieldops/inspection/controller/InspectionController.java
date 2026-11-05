@@ -4,6 +4,8 @@ import com.fieldops.inspection.InspectionSchedulingService;
 import com.fieldops.shared.security.FieldOpsUserPrincipal;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Future;
+import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 import java.time.OffsetDateTime;
@@ -18,6 +20,7 @@ import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
@@ -36,11 +39,33 @@ public class InspectionController {
     return ResponseEntity.status(201).body(inspection);
   }
 
+  @GetMapping
+  @PreAuthorize("hasAnyRole('ADMIN','SUPERVISOR')")
+  public InspectionSchedulingService.Page list(
+      @RequestParam(defaultValue = "0") @Min(0) int page,
+      @RequestParam(defaultValue = "20") @Min(1) @jakarta.validation.constraints.Max(100) int size,
+      @RequestParam(defaultValue = "scheduledFor,asc") String sort,
+      @RequestParam(required = false) InspectionSchedulingService.Status status,
+      @RequestParam(required = false) @org.springframework.format.annotation.DateTimeFormat(iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE_TIME) OffsetDateTime scheduledFrom,
+      @RequestParam(required = false) @org.springframework.format.annotation.DateTimeFormat(iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE_TIME) OffsetDateTime scheduledTo,
+      @RequestParam(required = false) UUID technicianId,
+      @RequestParam(required = false) UUID clientId) {
+    return inspections.list(page, size, sort, status, scheduledFrom, scheduledTo, technicianId, clientId);
+  }
+
   @PatchMapping("/{inspectionId}/assignee")
   @PreAuthorize("hasAnyRole('ADMIN','SUPERVISOR')")
   public InspectionSchedulingService.Inspection assign(
       @PathVariable UUID inspectionId, @Valid @RequestBody AssignTechnicianRequest body) {
     return inspections.assign(inspectionId, new InspectionSchedulingService.AssignmentCommand(body.technicianId(), body.version()));
+  }
+
+  @PatchMapping("/{inspectionId}/cancel")
+  @PreAuthorize("hasAnyRole('ADMIN','SUPERVISOR')")
+  public InspectionSchedulingService.Inspection cancel(
+      @PathVariable UUID inspectionId, @Valid @RequestBody CancelInspectionRequest body,
+      @AuthenticationPrincipal FieldOpsUserPrincipal principal) {
+    return inspections.cancel(inspectionId, new InspectionSchedulingService.CancellationCommand(body.reason(), body.version()), principal.userId());
   }
 
   @GetMapping("/my")
@@ -55,4 +80,5 @@ public class InspectionController {
                                           @Size(max = 255) String title, @Size(max = 2000) String instructions,
                                           InspectionSchedulingService.Priority priority) {}
   public record AssignTechnicianRequest(@NotNull UUID technicianId, @NotNull @jakarta.validation.constraints.Min(0) Integer version) {}
+  public record CancelInspectionRequest(@NotBlank @Size(max = 1000) String reason, @NotNull @Min(0) Integer version) {}
 }
