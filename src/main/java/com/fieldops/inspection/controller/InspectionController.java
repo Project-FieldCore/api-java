@@ -53,6 +53,12 @@ public class InspectionController {
     return inspections.list(page, size, sort, status, scheduledFrom, scheduledTo, technicianId, clientId);
   }
 
+  @GetMapping("/{inspectionId}/monitoring")
+  @PreAuthorize("hasAnyRole('ADMIN','SUPERVISOR')")
+  public InspectionSchedulingService.Monitoring monitoring(@PathVariable UUID inspectionId) {
+    return inspections.monitoring(inspectionId);
+  }
+
   @PatchMapping("/{inspectionId}/assignee")
   @PreAuthorize("hasAnyRole('ADMIN','SUPERVISOR')")
   public InspectionSchedulingService.Inspection assign(

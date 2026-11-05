@@ -36,6 +36,9 @@ class InspectionControllerTest {
   }
 
   @AfterEach void clearDatabase() {
+    jdbc.update("delete from evidence");
+    jdbc.update("delete from non_conformity");
+    jdbc.update("delete from inspection_response");
     jdbc.update("delete from inspection_item_snapshot");
     jdbc.update("delete from inspection");
     jdbc.update("delete from template_item");
@@ -252,6 +255,35 @@ class InspectionControllerTest {
             .with(principal(supervisor, "SUPERVISOR")))
         .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("INVALID_DATE_RANGE"));
     mvc.perform(get("/api/v1/inspections").with(principal(technician, "TECHNICIAN")))
+        .andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value("ACCESS_DENIED"));
+  }
+
+  @Test
+  void supervisorViewsSynchronizedEvidenceAndNonConformitiesInMonitoring() throws Exception {
+    UUID supervisor = insertUser("SUPERVISOR", "ACTIVE");
+    UUID technician = insertUser("TECHNICIAN", "ACTIVE");
+    UUID client = insertClient(); UUID site = insertSite(client); UUID version = insertPublishedVersion();
+    UUID inspection = insertInspection(version, client, site, technician, supervisor, "SUBMITTED", 0);
+    UUID item = UUID.randomUUID(); UUID response = UUID.randomUUID(); UUID evidence = UUID.randomUUID(); UUID nonConformity = UUID.randomUUID();
+    jdbc.update("insert into inspection_item_snapshot (id,inspection_id,section_title,section_order,item_title,response_type,required,item_order) values (?,?,?,?,?,?,?,?)",
+        item, inspection, "Segurança", 0, "Proteção", "CONFORMITY", true, 0);
+    jdbc.update("insert into inspection_response (id,inspection_id,inspection_item_id,conformity,answered_by) values (?,?,?,?,?)",
+        response, inspection, item, "NON_CONFORMING", technician);
+    jdbc.update("insert into evidence (id,inspection_response_id,storage_key,file_name,content_type,size_bytes,created_by) values (?,?,?,?,?,?,?)",
+        evidence, response, "inspections/" + inspection + "/foto.jpg", "foto.jpg", "image/jpeg", 1024L, technician);
+    jdbc.update("insert into non_conformity (id,inspection_id,inspection_response_id,severity,description,status) values (?,?,?,?,?,?)",
+        nonConformity, inspection, response, "HIGH", "Proteção ausente", "OPEN");
+
+    mvc.perform(get("/api/v1/inspections/{inspectionId}/monitoring", inspection).with(principal(supervisor, "SUPERVISOR")))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.inspectionId").value(inspection.toString()))
+        .andExpect(jsonPath("$.evidences[0].id").value(evidence.toString()))
+        .andExpect(jsonPath("$.evidences[0].inspectionResponseId").value(response.toString()))
+        .andExpect(jsonPath("$.evidences[0].fileName").value("foto.jpg"))
+        .andExpect(jsonPath("$.nonConformities[0].id").value(nonConformity.toString()))
+        .andExpect(jsonPath("$.nonConformities[0].severity").value("HIGH"))
+        .andExpect(jsonPath("$.nonConformities[0].status").value("OPEN"));
+    mvc.perform(get("/api/v1/inspections/{inspectionId}/monitoring", inspection).with(principal(technician, "TECHNICIAN")))
         .andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value("ACCESS_DENIED"));
   }
 

@@ -92,6 +92,26 @@ public class InspectionSchedulingService {
     return new Page(items, new PageMeta(page, size, total, (int) Math.ceil((double) total / size)));
   }
 
+  /** Evidências e não conformidades já recebidas pela API para acompanhamento administrativo. */
+  public Monitoring monitoring(UUID inspectionId) {
+    get(inspectionId);
+    List<Evidence> evidences = jdbc.query(
+        "select e.*,r.inspection_item_id from evidence e join inspection_response r on r.id=e.inspection_response_id where r.inspection_id=? order by e.created_at,e.id",
+        (rs, row) -> new Evidence(UUID.fromString(rs.getString("id")), UUID.fromString(rs.getString("inspection_response_id")),
+            UUID.fromString(rs.getString("inspection_item_id")), rs.getString("storage_key"), rs.getString("file_name"),
+            rs.getString("content_type"), rs.getLong("size_bytes"), rs.getObject("created_by", UUID.class),
+            rs.getTimestamp("created_at").toInstant()), inspectionId);
+    List<NonConformity> nonConformities = jdbc.query(
+        "select * from non_conformity where inspection_id=? order by created_at,id",
+        (rs, row) -> {
+          Timestamp resolvedAt = rs.getTimestamp("resolved_at");
+          return new NonConformity(UUID.fromString(rs.getString("id")), rs.getObject("inspection_response_id", UUID.class),
+              Severity.valueOf(rs.getString("severity")), rs.getString("description"), NonConformityStatus.valueOf(rs.getString("status")),
+              resolvedAt == null ? null : resolvedAt.toInstant(), rs.getObject("resolved_by", UUID.class), rs.getTimestamp("created_at").toInstant());
+        }, inspectionId);
+    return new Monitoring(inspectionId, evidences, nonConformities);
+  }
+
   private static Object[] concat(Object[] values, Object... tail) {
     Object[] result = java.util.Arrays.copyOf(values, values.length + tail.length);
     System.arraycopy(tail, 0, result, values.length, tail.length);
@@ -155,12 +175,19 @@ public class InspectionSchedulingService {
 
   public enum Status { DRAFT, ASSIGNED, IN_PROGRESS, SUBMITTED, UNDER_REVIEW, APPROVED, REJECTED, CANCELED }
   public enum Priority { LOW, MEDIUM, HIGH, CRITICAL }
+  public enum Severity { LOW, MEDIUM, HIGH, CRITICAL }
+  public enum NonConformityStatus { OPEN, RESOLVED, WAIVED }
   public record ScheduleCommand(UUID templateVersionId, UUID clientId, UUID siteId, UUID technicianId, OffsetDateTime scheduledFor, String title, String instructions, Priority priority) {}
   public record AssignmentCommand(UUID technicianId, int version) {}
   public record CancellationCommand(String reason, int version) {}
   public record Inspection(UUID id, UUID clientId, UUID siteId, UUID templateVersionId, UUID technicianId, UUID supervisorId, String title, String instructions, Priority priority, Status status, Instant scheduledFor, int version, UUID canceledBy, Instant canceledAt, String canceledReason) {}
   public record Page(List<Inspection> items, PageMeta page) {}
   public record PageMeta(int page, int size, long totalElements, int totalPages) {}
+  public record Monitoring(UUID inspectionId, List<Evidence> evidences, List<NonConformity> nonConformities) {}
+  public record Evidence(UUID id, UUID inspectionResponseId, UUID inspectionItemId, String storageKey, String fileName,
+                         String contentType, long sizeBytes, UUID createdBy, Instant createdAt) {}
+  public record NonConformity(UUID id, UUID inspectionResponseId, Severity severity, String description,
+                              NonConformityStatus status, Instant resolvedAt, UUID resolvedBy, Instant createdAt) {}
   private record PublishedVersion(UUID id, String title) {}
   private record SnapshotSource(UUID sourceItemId, String sectionTitle, String sectionDescription, int sectionOrder, String code, String title, String description, String responseType, boolean required, boolean observationRequiredOnFailure, boolean evidenceRequiredOnFailure, String optionsJson, int itemOrder) {}
 }
