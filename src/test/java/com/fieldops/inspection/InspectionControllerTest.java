@@ -39,6 +39,7 @@ class InspectionControllerTest {
   }
 
   @AfterEach void clearDatabase() {
+    jdbc.update("delete from sync_idempotency");
     jdbc.update("delete from evidence");
     jdbc.update("delete from non_conformity");
     jdbc.update("delete from inspection_response");
@@ -400,6 +401,26 @@ class InspectionControllerTest {
     mvc.perform(multipart("/api/v1/inspections/my/{inspectionId}/items/{itemId}/evidence", inspection, item)
             .file(text).with(principal(technician, "TECHNICIAN")))
         .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("EVIDENCE_INVALID"));
+  }
+
+  @Test
+  void retryingMutationWithTheSameOperationIdReplaysTheFirstResponse() throws Exception {
+    UUID technician = insertUser("TECHNICIAN", "ACTIVE");
+    UUID supervisor = insertUser("SUPERVISOR", "ACTIVE");
+    UUID client = insertClient(); UUID site = insertSite(client); UUID version = insertPublishedVersion();
+    UUID inspection = insertInspection(version, client, site, technician, supervisor, "IN_PROGRESS", 1);
+    UUID item = insertSnapshot(inspection);
+    String operationId = UUID.randomUUID().toString();
+    MockMultipartFile photo = new MockMultipartFile("file", "retry.jpg", "image/jpeg", new byte[] {1, 2, 3, 4});
+    String first = mvc.perform(multipart("/api/v1/inspections/my/{inspectionId}/items/{itemId}/evidence", inspection, item).file(photo)
+            .header("X-Operation-Id", operationId).with(principal(technician, "TECHNICIAN")))
+        .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+    String second = mvc.perform(multipart("/api/v1/inspections/my/{inspectionId}/items/{itemId}/evidence", inspection, item).file(photo)
+            .header("X-Client-Mutation-Id", operationId).with(principal(technician, "TECHNICIAN")))
+        .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+    org.assertj.core.api.Assertions.assertThat(second).isEqualTo(first);
+    org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject("select count(*) from evidence", Integer.class)).isEqualTo(1);
+    org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject("select count(*) from sync_idempotency where user_id=? and idempotency_key=?", Integer.class, technician, operationId)).isEqualTo(1);
   }
 
   @Test
