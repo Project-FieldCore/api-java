@@ -51,7 +51,8 @@ public class MobileSyncService {
     Map<UUID, OperationResult> done = new HashMap<>();
     Set<UUID> applied = new HashSet<>();
     for (Receipt receipt : stored.values()) {
-      done.put(receipt.operationId(), new OperationResult(receipt.operationId(), Status.ALREADY_APPLIED, receipt.entityVersion()));
+      if ("CONFLICT".equals(receipt.status())) continue;
+      done.put(receipt.operationId(), result(receipt.operationId(), Status.ALREADY_APPLIED, receipt.entityVersion()));
       if ("APPLIED".equals(receipt.status())) applied.add(receipt.operationId());
     }
 
@@ -125,8 +126,8 @@ public class MobileSyncService {
   private OperationResult apply(UUID technicianId, UUID deviceId, Operation operation) {
     OperationResult result = transactions.execute(status -> {
       Receipt existing = findReceipt(operation.operationId());
-      if (existing != null) {
-        return new OperationResult(operation.operationId(), Status.ALREADY_APPLIED, existing.entityVersion());
+      if (existing != null && !"CONFLICT".equals(existing.status())) {
+        return result(operation.operationId(), Status.ALREADY_APPLIED, existing.entityVersion());
       }
       try {
         OperationResult evaluated = evaluate(technicianId, operation);
@@ -137,15 +138,18 @@ public class MobileSyncService {
       } catch (ConflictRollback | DataIntegrityViolationException ex) {
         status.setRollbackOnly();
         return ex instanceof ConflictRollback
-            ? new OperationResult(operation.operationId(), Status.CONFLICT, null)
-            : new OperationResult(operation.operationId(), Status.REJECTED, null);
+            ? result(operation.operationId(), Status.CONFLICT, null)
+            : result(operation.operationId(), Status.REJECTED, null);
       }
     });
+    if (result.status() == Status.CONFLICT) {
+      return conflictWithSnapshot(operation);
+    }
     Receipt stored = findReceipt(operation.operationId());
-    if (stored != null) {
+    if (stored != null && !"CONFLICT".equals(stored.status())) {
       return result.status() == Status.APPLIED
           ? result
-          : new OperationResult(operation.operationId(), Status.ALREADY_APPLIED, stored.entityVersion());
+          : result(operation.operationId(), Status.ALREADY_APPLIED, stored.entityVersion());
     }
     if (result.status() != Status.APPLIED && result.status() != Status.ALREADY_APPLIED) {
       storeTerminal(technicianId, deviceId, operation, result.status());
@@ -155,29 +159,58 @@ public class MobileSyncService {
 
   private OperationResult evaluate(UUID technicianId, Operation operation) {
     if (!"INSPECTION_RESPONSE".equals(operation.entityType()) || !"UPSERT".equals(operation.operationType())) {
-      return new OperationResult(operation.operationId(), Status.REJECTED, null);
+      return result(operation.operationId(), Status.REJECTED, null);
     }
     AnswerPayload payload = operation.payload();
     if (payload == null || payload.inspectionItemId() == null) {
-      return new OperationResult(operation.operationId(), Status.REJECTED, null);
+      return result(operation.operationId(), Status.REJECTED, null);
     }
     List<InspectionRow> rows = jdbc.query(
         "select i.id, i.technician_id, i.status, i.version from inspection_item_snapshot s join inspection i on i.id=s.inspection_id where s.id=?",
         (rs, row) -> new InspectionRow(UUID.fromString(rs.getString("id")), UUID.fromString(rs.getString("technician_id")), rs.getString("status"), rs.getInt("version")),
         payload.inspectionItemId());
     if (rows.isEmpty() || !technicianId.equals(rows.getFirst().technicianId()) || !"IN_PROGRESS".equals(rows.getFirst().status())) {
-      return new OperationResult(operation.operationId(), Status.REJECTED, null);
+      return result(operation.operationId(), Status.REJECTED, null);
     }
     InspectionRow inspection = rows.getFirst();
     if (operation.baseVersion() == null || operation.baseVersion() != inspection.version()) {
-      return new OperationResult(operation.operationId(), Status.CONFLICT, null);
+      return result(operation.operationId(), Status.CONFLICT, inspection.version());
     }
     upsertResponse(inspection.id(), operation.entityId(), technicianId, payload);
     int updated = jdbc.update(
         "update inspection set version=version+1, updated_at=current_timestamp where id=? and version=?",
         inspection.id(), inspection.version());
     if (updated == 0) throw new ConflictRollback();
-    return new OperationResult(operation.operationId(), Status.APPLIED, inspection.version() + 1);
+    return result(operation.operationId(), Status.APPLIED, inspection.version() + 1);
+  }
+
+  /** Read after the operation transaction so a rolled-back write is not reported as server state. */
+  private OperationResult conflictWithSnapshot(Operation operation) {
+    UUID itemId = operation.payload() == null ? null : operation.payload().inspectionItemId();
+    Integer version = null;
+    if (itemId != null) {
+      List<Integer> versions = jdbc.query(
+          "select i.version from inspection_item_snapshot s join inspection i on i.id=s.inspection_id where s.id=?",
+          (rs, row) -> rs.getInt("version"), itemId);
+      if (!versions.isEmpty()) version = versions.getFirst();
+    }
+    return new OperationResult(operation.operationId(), Status.CONFLICT, version, loadServerResponse(itemId));
+  }
+
+  private ServerResponse loadServerResponse(UUID itemId) {
+    if (itemId == null) return ServerResponse.empty();
+    List<ServerResponse> rows = jdbc.query(
+        "select id, value_text, value_number, value_boolean, value_date, conformity, observation from inspection_response where inspection_item_id=?",
+        (rs, row) -> new ServerResponse(
+            UUID.fromString(rs.getString("id")),
+            rs.getString("value_text"),
+            rs.getBigDecimal("value_number"),
+            (Boolean) rs.getObject("value_boolean"),
+            rs.getDate("value_date") == null ? null : rs.getDate("value_date").toLocalDate(),
+            rs.getString("conformity"),
+            rs.getString("observation")),
+        itemId);
+    return rows.isEmpty() ? ServerResponse.empty() : rows.getFirst();
   }
 
   private void upsertResponse(UUID inspectionId, UUID entityId, UUID technicianId, AnswerPayload payload) {
@@ -201,7 +234,7 @@ public class MobileSyncService {
   private void markDependencyFailed(UUID technicianId, UUID deviceId, Map<UUID, Operation> byId, Map<UUID, List<UUID>> dependents, Map<UUID, OperationResult> done, UUID operationId) {
     if (done.containsKey(operationId) || !byId.containsKey(operationId)) return;
     storeTerminal(technicianId, deviceId, byId.get(operationId), Status.DEPENDENCY_FAILED);
-    done.put(operationId, new OperationResult(operationId, Status.DEPENDENCY_FAILED, null));
+    done.put(operationId, result(operationId, Status.DEPENDENCY_FAILED, null));
     for (UUID dependent : dependents.getOrDefault(operationId, List.of())) {
       markDependencyFailed(technicianId, deviceId, byId, dependents, done, dependent);
     }
@@ -255,8 +288,15 @@ public class MobileSyncService {
   public record Operation(UUID operationId, String entityType, UUID entityId, String operationType, List<UUID> dependencyIds, Integer baseVersion, AnswerPayload payload) {}
   public record AnswerPayload(UUID inspectionItemId, String valueText, BigDecimal valueNumber, Boolean valueBoolean, LocalDate valueDate, String conformity, String observation) {}
   public record PushResult(List<OperationResult> results, Instant serverTime) {}
-  public record OperationResult(UUID operationId, Status status, Integer entityVersion) {}
+  public record OperationResult(UUID operationId, Status status, Integer entityVersion, ServerResponse server) {}
+  public record ServerResponse(UUID id, String valueText, BigDecimal valueNumber, Boolean valueBoolean, LocalDate valueDate, String conformity, String observation) {
+    static ServerResponse empty() { return new ServerResponse(null, null, null, null, null, null, null); }
+  }
   public enum Status { APPLIED, ALREADY_APPLIED, REJECTED, CONFLICT, DEPENDENCY_FAILED }
+
+  private static OperationResult result(UUID operationId, Status status, Integer entityVersion) {
+    return new OperationResult(operationId, status, entityVersion, null);
+  }
   private record Receipt(UUID operationId, String status, Integer entityVersion) {}
   private record InspectionRow(UUID id, UUID technicianId, String status, int version) {}
 }

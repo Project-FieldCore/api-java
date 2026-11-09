@@ -1,5 +1,6 @@
 package com.fieldops.mobile;
 
+import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -88,6 +89,8 @@ class MobileSyncControllerTest {
                 + "," + operation(second, secondItem, 0, List.of(first), "\"valueText\":\"later\""))))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.results[0].status").value("CONFLICT"))
+        .andExpect(jsonPath("$.results[0].entityVersion").value(0))
+        .andExpect(jsonPath("$.results[0].server.valueText").value(nullValue()))
         .andExpect(jsonPath("$.results[1].status").value("DEPENDENCY_FAILED"));
 
     org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject("select count(*) from inspection_response", Integer.class)).isZero();
@@ -116,6 +119,55 @@ class MobileSyncControllerTest {
   }
 
   @Test
+  void staleVersionReturnsServerSnapshotAndCanBeAppliedAfterAnalysis() throws Exception {
+    UUID technician = insertUser("TECHNICIAN");
+    UUID inspection = insertInProgressInspection(technician, 2);
+    UUID item = insertSnapshot(inspection, 0);
+    UUID responseId = UUID.randomUUID();
+    UUID operationId = UUID.randomUUID();
+    jdbc.update(
+        "insert into inspection_response (id,inspection_id,inspection_item_id,value_text,value_boolean,value_date,observation,conformity,answered_by) values (?,?,?,?,?,?,?,?,?)",
+        responseId, inspection, item, "server", true, java.sql.Date.valueOf("2026-08-01"), "ok", "CONFORMING", technician);
+    String stale = batch(UUID.randomUUID(), operation(operationId, item, 0, null, "\"valueText\":\"local\""));
+
+    mvc.perform(post("/api/v1/mobile/sync/push").with(technician(technician)).contentType("application/json").content(stale))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.results[0].status").value("CONFLICT"))
+        .andExpect(jsonPath("$.results[0].entityVersion").value(2))
+        .andExpect(jsonPath("$.results[0].server.id").value(responseId.toString()))
+        .andExpect(jsonPath("$.results[0].server.valueText").value("server"))
+        .andExpect(jsonPath("$.results[0].server.valueBoolean").value(true))
+        .andExpect(jsonPath("$.results[0].server.valueDate").value("2026-08-01"))
+        .andExpect(jsonPath("$.results[0].server.conformity").value("CONFORMING"))
+        .andExpect(jsonPath("$.results[0].server.observation").value("ok"));
+    mvc.perform(post("/api/v1/mobile/sync/push").with(technician(technician)).contentType("application/json").content(stale))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.results[0].status").value("CONFLICT"))
+        .andExpect(jsonPath("$.results[0].entityVersion").value(2))
+        .andExpect(jsonPath("$.results[0].server.valueText").value("server"));
+
+    org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject("select count(*) from inspection_response", Integer.class)).isEqualTo(1);
+    org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject("select value_text from inspection_response where id=?", String.class, responseId)).isEqualTo("server");
+    org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject("select version from inspection where id=?", Integer.class, inspection)).isEqualTo(2);
+    org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject("select count(*) from mobile_sync_operation where operation_id=?", Integer.class, operationId)).isZero();
+
+    String resolved = batch(UUID.randomUUID(), operation(operationId, item, 2, null, "\"valueText\":\"local\",\"observation\":\"revisado\""));
+    mvc.perform(post("/api/v1/mobile/sync/push").with(technician(technician)).contentType("application/json").content(resolved))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.results[0].status").value("APPLIED"))
+        .andExpect(jsonPath("$.results[0].entityVersion").value(3));
+    mvc.perform(post("/api/v1/mobile/sync/push").with(technician(technician)).contentType("application/json").content(resolved))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.results[0].status").value("ALREADY_APPLIED"))
+        .andExpect(jsonPath("$.results[0].entityVersion").value(3));
+
+    org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject("select count(*) from inspection_response", Integer.class)).isEqualTo(1);
+    org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject("select value_text from inspection_response where id=?", String.class, responseId)).isEqualTo("local");
+    org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject("select version from inspection where id=?", Integer.class, inspection)).isEqualTo(3);
+    org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject("select count(*) from mobile_sync_operation where operation_id=?", Integer.class, operationId)).isEqualTo(1);
+  }
+
+  @Test
   void baseVersionMismatchIsConflictForThatOperation() throws Exception {
     UUID technician = insertUser("TECHNICIAN");
     UUID inspection = insertInProgressInspection(technician, 2);
@@ -124,8 +176,11 @@ class MobileSyncControllerTest {
     mvc.perform(post("/api/v1/mobile/sync/push").with(technician(technician)).contentType("application/json")
             .content(batch(UUID.randomUUID(), operation(UUID.randomUUID(), item, 0, null, "\"valueText\":\"nope\""))))
         .andExpect(status().isOk())
-        .andExpect(jsonPath("$.results[0].status").value("CONFLICT"));
+        .andExpect(jsonPath("$.results[0].status").value("CONFLICT"))
+        .andExpect(jsonPath("$.results[0].entityVersion").value(2))
+        .andExpect(jsonPath("$.results[0].server.id").value(nullValue()));
     org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject("select count(*) from inspection_response", Integer.class)).isZero();
+    org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject("select version from inspection where id=?", Integer.class, inspection)).isEqualTo(2);
   }
 
   @Test
