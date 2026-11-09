@@ -32,6 +32,8 @@ class OpenApiContractTest {
     assertTrue(contract.contains("/api/v1/template-sections/{sectionId}/items/{itemId}:"));
     assertTrue(contract.contains("TemplateItemUpdateRequest:"));
     assertTrue(contract.contains("draftVersionId:"));
+    assertTrue(contract.contains("/api/v1/mobile/sync/push:"));
+    assertTrue(contract.contains("DEPENDENCY_FAILED"));
     assertTrue(contract.contains("InspectionPriority:"));
     assertTrue(contract.contains("scheduledFor:"));
     assertTrue(contract.contains("instructions:"));
