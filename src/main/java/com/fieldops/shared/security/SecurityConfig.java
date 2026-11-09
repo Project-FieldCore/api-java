@@ -1,6 +1,7 @@
 package com.fieldops.shared.security;
 
 import com.fieldops.shared.web.RequestIdFilter;
+import com.fieldops.sync.SyncIdempotencyFilter;
 import java.util.Arrays;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
@@ -39,6 +40,7 @@ public class SecurityConfig {
   private final ApiAuthenticationEntryPoint authenticationEntryPoint;
   private final ApiAccessDeniedHandler accessDeniedHandler;
   private final JwtAuthenticationFilter jwtAuthenticationFilter;
+  private final SyncIdempotencyFilter syncIdempotencyFilter;
   private final RequestIdFilter requestIdFilter;
   private final FieldOpsSecurityProperties securityProperties;
 
@@ -46,11 +48,13 @@ public class SecurityConfig {
       ApiAuthenticationEntryPoint authenticationEntryPoint,
       ApiAccessDeniedHandler accessDeniedHandler,
       JwtAuthenticationFilter jwtAuthenticationFilter,
+      SyncIdempotencyFilter syncIdempotencyFilter,
       RequestIdFilter requestIdFilter,
       FieldOpsSecurityProperties securityProperties) {
     this.authenticationEntryPoint = authenticationEntryPoint;
     this.accessDeniedHandler = accessDeniedHandler;
     this.jwtAuthenticationFilter = jwtAuthenticationFilter;
+    this.syncIdempotencyFilter = syncIdempotencyFilter;
     this.requestIdFilter = requestIdFilter;
     this.securityProperties = securityProperties;
   }
@@ -85,6 +89,7 @@ public class SecurityConfig {
                                     .STRICT_ORIGIN_WHEN_CROSS_ORIGIN)))
         .addFilterBefore(requestIdFilter, UsernamePasswordAuthenticationFilter.class)
         .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
+        .addFilterAfter(syncIdempotencyFilter, JwtAuthenticationFilter.class)
         .build();
   }
 

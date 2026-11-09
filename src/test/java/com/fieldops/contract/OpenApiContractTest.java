@@ -51,6 +51,10 @@ class OpenApiContractTest {
     assertTrue(contract.contains("/api/v1/inspections/my/{inspectionId}/non-conformities:"));
     assertTrue(contract.contains("NonConformityRequest:"));
     assertTrue(contract.contains("/api/v1/inspections/my/{inspectionId}/complete:"));
+    assertTrue(contract.contains("/api/v1/inspections/review-queue:"));
+    assertTrue(contract.contains("ReviewQueuePage:"));
+    assertTrue(contract.contains("X-Operation-Id"));
+    assertTrue(contract.contains("X-Client-Mutation-Id"));
     assertTrue(contract.contains("AssignedInspection:"));
     assertTrue(contract.contains("scheduledFrom"));
     assertTrue(contract.contains("ErrorResponse:"));

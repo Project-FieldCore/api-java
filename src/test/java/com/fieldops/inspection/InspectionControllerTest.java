@@ -39,6 +39,7 @@ class InspectionControllerTest {
   }
 
   @AfterEach void clearDatabase() {
+    jdbc.update("delete from sync_idempotency");
     jdbc.update("delete from mobile_sync_operation");
     jdbc.update("delete from evidence");
     jdbc.update("delete from non_conformity");
@@ -331,6 +332,30 @@ class InspectionControllerTest {
   }
 
   @Test
+  void supervisorListsOnlySubmittedInspectionsInReviewQueueWithFilters() throws Exception {
+    UUID supervisor = insertUser("SUPERVISOR", "ACTIVE");
+    UUID technician = insertUser("TECHNICIAN", "ACTIVE"); UUID otherTechnician = insertUser("TECHNICIAN", "ACTIVE");
+    UUID client = insertClient(); UUID otherClient = insertClient(); UUID site = insertSite(client); UUID otherSite = insertSite(otherClient);
+    UUID version = insertPublishedVersion();
+    UUID pending = insertInspection(version, client, site, technician, supervisor, "SUBMITTED", 1);
+    UUID otherPending = insertInspection(version, otherClient, otherSite, otherTechnician, supervisor, "SUBMITTED", 1);
+    insertInspection(version, client, site, technician, supervisor, "IN_PROGRESS", 1);
+    jdbc.update("update inspection set submitted_at_server=current_timestamp where id in (?,?)", pending, otherPending);
+
+    mvc.perform(get("/api/v1/inspections/review-queue").param("technicianId", technician.toString()).param("clientId", client.toString())
+            .with(principal(supervisor, "SUPERVISOR")))
+        .andExpect(status().isOk()).andExpect(jsonPath("$.items.length()").value(1))
+        .andExpect(jsonPath("$.items[0].id").value(pending.toString()))
+        .andExpect(jsonPath("$.items[0].technicianId").value(technician.toString()))
+        .andExpect(jsonPath("$.page.totalElements").value(1));
+    mvc.perform(get("/api/v1/inspections/review-queue").with(principal(technician, "TECHNICIAN")))
+        .andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value("ACCESS_DENIED"));
+    mvc.perform(get("/api/v1/inspections/review-queue").param("submittedFrom", "2026-12-31T00:00:00Z").param("submittedTo", "2026-01-01T00:00:00Z")
+            .with(principal(supervisor, "SUPERVISOR")))
+        .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("INVALID_DATE_RANGE"));
+  }
+
+  @Test
   void technicianRegistersNonConformityOnlyWhenTheItemHasEvidence() throws Exception {
     UUID technician = insertUser("TECHNICIAN", "ACTIVE");
     UUID supervisor = insertUser("SUPERVISOR", "ACTIVE");
@@ -401,6 +426,26 @@ class InspectionControllerTest {
     mvc.perform(multipart("/api/v1/inspections/my/{inspectionId}/items/{itemId}/evidence", inspection, item)
             .file(text).with(principal(technician, "TECHNICIAN")))
         .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("EVIDENCE_INVALID"));
+  }
+
+  @Test
+  void retryingMutationWithTheSameOperationIdReplaysTheFirstResponse() throws Exception {
+    UUID technician = insertUser("TECHNICIAN", "ACTIVE");
+    UUID supervisor = insertUser("SUPERVISOR", "ACTIVE");
+    UUID client = insertClient(); UUID site = insertSite(client); UUID version = insertPublishedVersion();
+    UUID inspection = insertInspection(version, client, site, technician, supervisor, "IN_PROGRESS", 1);
+    UUID item = insertSnapshot(inspection);
+    String operationId = UUID.randomUUID().toString();
+    MockMultipartFile photo = new MockMultipartFile("file", "retry.jpg", "image/jpeg", new byte[] {1, 2, 3, 4});
+    String first = mvc.perform(multipart("/api/v1/inspections/my/{inspectionId}/items/{itemId}/evidence", inspection, item).file(photo)
+            .header("X-Operation-Id", operationId).with(principal(technician, "TECHNICIAN")))
+        .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+    String second = mvc.perform(multipart("/api/v1/inspections/my/{inspectionId}/items/{itemId}/evidence", inspection, item).file(photo)
+            .header("X-Client-Mutation-Id", operationId).with(principal(technician, "TECHNICIAN")))
+        .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+    org.assertj.core.api.Assertions.assertThat(second).isEqualTo(first);
+    org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject("select count(*) from evidence", Integer.class)).isEqualTo(1);
+    org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject("select count(*) from sync_idempotency where user_id=? and idempotency_key=?", Integer.class, technician, operationId)).isEqualTo(1);
   }
 
   @Test
