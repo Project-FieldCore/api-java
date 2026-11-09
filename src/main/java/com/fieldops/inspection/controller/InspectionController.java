@@ -63,6 +63,19 @@ public class InspectionController {
     return inspections.list(page, size, sort, status, scheduledFrom, scheduledTo, technicianId, clientId);
   }
 
+  @GetMapping("/review-queue")
+  @PreAuthorize("hasAnyRole('ADMIN','SUPERVISOR')")
+  public InspectionSchedulingService.ReviewPage reviewQueue(
+      @RequestParam(defaultValue = "0") @Min(0) int page,
+      @RequestParam(defaultValue = "20") @Min(1) @jakarta.validation.constraints.Max(100) int size,
+      @RequestParam(defaultValue = "submittedAt,asc") String sort,
+      @RequestParam(required = false) @org.springframework.format.annotation.DateTimeFormat(iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE_TIME) OffsetDateTime submittedFrom,
+      @RequestParam(required = false) @org.springframework.format.annotation.DateTimeFormat(iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE_TIME) OffsetDateTime submittedTo,
+      @RequestParam(required = false) UUID technicianId,
+      @RequestParam(required = false) UUID clientId) {
+    return inspections.reviewQueue(page, size, sort, submittedFrom, submittedTo, technicianId, clientId);
+  }
+
   @GetMapping("/{inspectionId}/monitoring")
   @PreAuthorize("hasAnyRole('ADMIN','SUPERVISOR')")
   public InspectionSchedulingService.Monitoring monitoring(@PathVariable UUID inspectionId) {

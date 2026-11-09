@@ -96,6 +96,29 @@ public class InspectionSchedulingService {
     return new Page(items, new PageMeta(page, size, total, (int) Math.ceil((double) total / size)));
   }
 
+  /** AC-REVIEW: paged supervisor queue containing only inspections awaiting a decision. */
+  public ReviewPage reviewQueue(int page, int size, String sort, OffsetDateTime submittedFrom,
+      OffsetDateTime submittedTo, UUID technicianId, UUID clientId) {
+    if (submittedFrom != null && submittedTo != null && submittedFrom.isAfter(submittedTo)) {
+      throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_DATE_RANGE", "submittedFrom must be before submittedTo");
+    }
+    Timestamp from = submittedFrom == null ? null : Timestamp.from(submittedFrom.toInstant());
+    Timestamp to = submittedTo == null ? null : Timestamp.from(submittedTo.toInstant());
+    String where = " where i.status='SUBMITTED' and (? is null or i.submitted_at_server>=?) and (? is null or i.submitted_at_server<=?)"
+        + " and (? is null or i.technician_id=?) and (? is null or i.client_id=?)";
+    Object[] filters = {from, from, to, to, technicianId, technicianId, clientId, clientId};
+    long total = jdbc.queryForObject("select count(*) from inspection i" + where, Long.class, filters);
+    List<ReviewQueueItem> items = jdbc.query("select i.id,i.client_id,c.name as client_name,i.site_id,s.name as site_name,"
+        + "i.technician_id,u.name as technician_name,i.title,i.priority,i.submitted_at_server,i.scheduled_for from inspection i "
+        + "join client c on c.id=i.client_id join inspection_site s on s.id=i.site_id join app_user u on u.id=i.technician_id"
+        + where + " order by " + PageQuery.orderBy(sort, java.util.Map.of("submittedAt", "i.submitted_at_server", "scheduledFor", "i.scheduled_for", "priority", "i.priority"))
+        + " limit ? offset ?", (rs, row) -> new ReviewQueueItem(uuid(rs.getString("id")), uuid(rs.getString("client_id")),
+            rs.getString("client_name"), uuid(rs.getString("site_id")), rs.getString("site_name"), uuid(rs.getString("technician_id")),
+            rs.getString("technician_name"), rs.getString("title"), Priority.valueOf(rs.getString("priority")),
+            rs.getTimestamp("submitted_at_server").toInstant(), rs.getTimestamp("scheduled_for").toInstant()), concat(filters, size, page * size));
+    return new ReviewPage(items, new PageMeta(page, size, total, (int) Math.ceil((double) total / size)));
+  }
+
   /** Evidências e não conformidades já recebidas pela API para o acompanhamento. */
   public Monitoring monitoring(UUID inspectionId) {
     get(inspectionId);
@@ -190,6 +213,9 @@ public class InspectionSchedulingService {
   public record CancellationCommand(String reason, int version) {}
   public record Inspection(UUID id, UUID clientId, UUID siteId, UUID templateVersionId, UUID technicianId, UUID supervisorId, String title, String instructions, Priority priority, Status status, Instant scheduledFor, int version, UUID canceledBy, Instant canceledAt, String canceledReason) {}
   public record Page(List<Inspection> items, PageMeta page) {}
+  public record ReviewPage(List<ReviewQueueItem> items, PageMeta page) {}
+  public record ReviewQueueItem(UUID id, UUID clientId, String clientName, UUID siteId, String siteName, UUID technicianId,
+                                String technicianName, String title, Priority priority, Instant submittedAt, Instant scheduledFor) {}
   public record PageMeta(int page, int size, long totalElements, int totalPages) {}
   public enum Severity { LOW, MEDIUM, HIGH, CRITICAL }
   public enum NonConformityStatus { OPEN, RESOLVED, WAIVED }
