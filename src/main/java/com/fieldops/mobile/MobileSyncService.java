@@ -1,11 +1,17 @@
 package com.fieldops.mobile;
 
+import com.fieldops.shared.error.ApiException;
 import java.math.BigDecimal;
 import java.sql.Date;
+import java.sql.Timestamp;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -14,6 +20,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -21,12 +28,17 @@ import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
- * Push de sincronização do técnico. Cada operação commita na própria transação:
- * uma falha não desfaz o que já entrou no mesmo lote, e o recibo de {@code operationId}
- * torna o retry idempotente.
+ * Sync do técnico: push com recibo por {@code operationId}, e pull por cursor opaco
+ * ({@code instant|uuid}) com merge de inspeções, respostas e tombstones.
  */
 @Service
 public class MobileSyncService {
+  static final int PULL_PAGE_SIZE = 100;
+  private static final UUID BOOTSTRAP_ID = UUID.fromString("00000000-0000-0000-0000-000000000000");
+  private static final Instant BOOTSTRAP_AT = Instant.parse("0001-01-01T00:00:00.000Z");
+  private static final DateTimeFormatter CURSOR_TIME =
+      DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'").withZone(ZoneOffset.UTC);
+
   private final JdbcTemplate jdbc;
   private final TransactionTemplate transactions;
 
@@ -34,6 +46,35 @@ public class MobileSyncService {
     this.jdbc = jdbc;
     this.transactions = new TransactionTemplate(transactionManager);
     this.transactions.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+  }
+
+  public PullResult pull(UUID technicianId, String rawCursor) {
+    Instant serverTime = Instant.now();
+    boolean hadCursor = rawCursor != null && !rawCursor.isBlank();
+    Cursor cursor = parseCursor(rawCursor);
+    List<ChangeCandidate> candidates = new ArrayList<>();
+    candidates.addAll(loadInspectionChanges(technicianId, cursor));
+    candidates.addAll(loadResponseChanges(technicianId, cursor));
+    candidates.addAll(loadTombstoneChanges(technicianId, cursor));
+    candidates.sort(Comparator
+        .comparing(ChangeCandidate::updatedAt)
+        .thenComparing(ChangeCandidate::streamKey));
+
+    boolean hasMore = candidates.size() > PULL_PAGE_SIZE;
+    List<ChangeCandidate> page = hasMore ? candidates.subList(0, PULL_PAGE_SIZE) : candidates;
+    attachInspectionItems(page);
+
+    String nextCursor;
+    if (page.isEmpty()) {
+      nextCursor = hadCursor ? rawCursor.trim() : formatCursor(serverTime, BOOTSTRAP_ID);
+    } else {
+      ChangeCandidate last = page.getLast();
+      nextCursor = formatCursor(last.updatedAt(), last.streamKey());
+    }
+    List<SyncChange> changes = page.stream()
+        .map(c -> new SyncChange(c.entityType(), c.entityId(), c.operation(), c.updatedAt(), c.payload()))
+        .toList();
+    return new PullResult(changes, nextCursor, serverTime, hasMore);
   }
 
   public PushResult push(UUID technicianId, PushCommand command) {
@@ -299,4 +340,213 @@ public class MobileSyncService {
   }
   private record Receipt(UUID operationId, String status, Integer entityVersion) {}
   private record InspectionRow(UUID id, UUID technicianId, String status, int version) {}
+
+  private List<ChangeCandidate> loadInspectionChanges(UUID technicianId, Cursor cursor) {
+    return jdbc.query(
+        """
+        select i.id, i.client_id, i.site_id, i.equipment_id, i.template_version_id, i.technician_id, i.supervisor_id,
+               i.title, i.instructions, i.priority, i.status, i.scheduled_for, i.started_at_device, i.started_at_server,
+               i.completed_at_device, i.submitted_at_server, i.canceled_at, i.canceled_reason, i.equipment_confirmed_at,
+               i.started_latitude, i.started_longitude, i.completed_latitude, i.completed_longitude, i.version, i.updated_at
+        from inspection i
+        where i.technician_id = ?
+          and (i.updated_at > ? or (i.updated_at = ? and i.id > ?))
+        order by i.updated_at asc, i.id asc
+        limit ?
+        """,
+        (rs, row) -> {
+          UUID id = UUID.fromString(rs.getString("id"));
+          Instant updatedAt = rs.getTimestamp("updated_at").toInstant();
+          InspectionPullPayload payload = new InspectionPullPayload(
+              id,
+              UUID.fromString(rs.getString("client_id")),
+              UUID.fromString(rs.getString("site_id")),
+              optionalUuid(rs.getString("equipment_id")),
+              UUID.fromString(rs.getString("template_version_id")),
+              UUID.fromString(rs.getString("technician_id")),
+              optionalUuid(rs.getString("supervisor_id")),
+              rs.getString("title"),
+              rs.getString("instructions"),
+              rs.getString("priority"),
+              rs.getString("status"),
+              instant(rs.getTimestamp("scheduled_for")),
+              instant(rs.getTimestamp("started_at_device")),
+              instant(rs.getTimestamp("started_at_server")),
+              instant(rs.getTimestamp("completed_at_device")),
+              instant(rs.getTimestamp("submitted_at_server")),
+              instant(rs.getTimestamp("canceled_at")),
+              rs.getString("canceled_reason"),
+              instant(rs.getTimestamp("equipment_confirmed_at")),
+              rs.getBigDecimal("started_latitude"),
+              rs.getBigDecimal("started_longitude"),
+              rs.getBigDecimal("completed_latitude"),
+              rs.getBigDecimal("completed_longitude"),
+              rs.getInt("version"),
+              updatedAt,
+              List.of());
+          return new ChangeCandidate("INSPECTION", id, "UPSERT", updatedAt, id, payload);
+        },
+        technicianId, Timestamp.from(cursor.afterAt()), Timestamp.from(cursor.afterAt()), cursor.afterId(), PULL_PAGE_SIZE + 1);
+  }
+
+  private List<ChangeCandidate> loadResponseChanges(UUID technicianId, Cursor cursor) {
+    return jdbc.query(
+        """
+        select r.id, r.inspection_id, r.inspection_item_id, r.value_text, r.value_number, r.value_boolean, r.value_date,
+               r.value_json, r.observation, r.conformity, r.answered_at_device, r.server_received_at, r.answered_by,
+               r.version, r.updated_at
+        from inspection_response r
+        inner join inspection i on i.id = r.inspection_id
+        where i.technician_id = ?
+          and (r.updated_at > ? or (r.updated_at = ? and r.id > ?))
+        order by r.updated_at asc, r.id asc
+        limit ?
+        """,
+        (rs, row) -> {
+          UUID id = UUID.fromString(rs.getString("id"));
+          Instant updatedAt = rs.getTimestamp("updated_at").toInstant();
+          Date valueDate = rs.getDate("value_date");
+          ResponsePullPayload payload = new ResponsePullPayload(
+              id,
+              UUID.fromString(rs.getString("inspection_id")),
+              UUID.fromString(rs.getString("inspection_item_id")),
+              rs.getString("value_text"),
+              rs.getBigDecimal("value_number"),
+              (Boolean) rs.getObject("value_boolean"),
+              valueDate == null ? null : valueDate.toLocalDate(),
+              rs.getString("value_json"),
+              rs.getString("observation"),
+              rs.getString("conformity"),
+              instant(rs.getTimestamp("answered_at_device")),
+              instant(rs.getTimestamp("server_received_at")),
+              optionalUuid(rs.getString("answered_by")),
+              rs.getInt("version"),
+              updatedAt);
+          return new ChangeCandidate("INSPECTION_RESPONSE", id, "UPSERT", updatedAt, id, payload);
+        },
+        technicianId, Timestamp.from(cursor.afterAt()), Timestamp.from(cursor.afterAt()), cursor.afterId(), PULL_PAGE_SIZE + 1);
+  }
+
+  private List<ChangeCandidate> loadTombstoneChanges(UUID technicianId, Cursor cursor) {
+    return jdbc.query(
+        """
+        select t.id, t.entity_id, t.removed_at
+        from mobile_sync_tombstone t
+        where t.technician_id = ?
+          and (t.removed_at > ? or (t.removed_at = ? and t.id > ?))
+        order by t.removed_at asc, t.id asc
+        limit ?
+        """,
+        (rs, row) -> {
+          UUID streamKey = UUID.fromString(rs.getString("id"));
+          UUID entityId = UUID.fromString(rs.getString("entity_id"));
+          Instant updatedAt = rs.getTimestamp("removed_at").toInstant();
+          return new ChangeCandidate("INSPECTION", entityId, "DELETE", updatedAt, streamKey, null);
+        },
+        technicianId, Timestamp.from(cursor.afterAt()), Timestamp.from(cursor.afterAt()), cursor.afterId(), PULL_PAGE_SIZE + 1);
+  }
+
+  private void attachInspectionItems(List<ChangeCandidate> page) {
+    List<UUID> inspectionIds = page.stream()
+        .filter(c -> "INSPECTION".equals(c.entityType()) && "UPSERT".equals(c.operation()))
+        .map(ChangeCandidate::entityId)
+        .distinct()
+        .toList();
+    if (inspectionIds.isEmpty()) return;
+
+    Map<UUID, List<InspectionItemPullPayload>> itemsByInspection = new HashMap<>();
+    String placeholders = String.join(",", inspectionIds.stream().map(id -> "?").toList());
+    jdbc.query(
+        "select id, inspection_id, section_title, section_description, section_order, item_code, item_title, item_description, "
+            + "response_type, required, rules_json, options_json, item_order from inspection_item_snapshot "
+            + "where inspection_id in (" + placeholders + ") order by section_order, item_order",
+        (rs, row) -> {
+          UUID inspectionId = UUID.fromString(rs.getString("inspection_id"));
+          itemsByInspection.computeIfAbsent(inspectionId, ignored -> new ArrayList<>()).add(
+              new InspectionItemPullPayload(
+                  UUID.fromString(rs.getString("id")),
+                  rs.getString("section_title"),
+                  rs.getString("section_description"),
+                  rs.getInt("section_order"),
+                  rs.getString("item_code"),
+                  rs.getString("item_title"),
+                  rs.getString("item_description"),
+                  rs.getString("response_type"),
+                  rs.getBoolean("required"),
+                  rs.getString("rules_json"),
+                  rs.getString("options_json"),
+                  rs.getInt("item_order")));
+          return null;
+        },
+        inspectionIds.toArray());
+
+    for (int i = 0; i < page.size(); i++) {
+      ChangeCandidate candidate = page.get(i);
+      if (!("INSPECTION".equals(candidate.entityType()) && "UPSERT".equals(candidate.operation()))) continue;
+      InspectionPullPayload payload = (InspectionPullPayload) candidate.payload();
+      List<InspectionItemPullPayload> items = itemsByInspection.getOrDefault(payload.id(), List.of());
+      page.set(i, new ChangeCandidate(
+          candidate.entityType(), candidate.entityId(), candidate.operation(), candidate.updatedAt(),
+          candidate.streamKey(),
+          new InspectionPullPayload(
+              payload.id(), payload.clientId(), payload.siteId(), payload.equipmentId(), payload.templateVersionId(),
+              payload.technicianId(), payload.supervisorId(), payload.title(), payload.instructions(), payload.priority(),
+              payload.status(), payload.scheduledFor(), payload.startedAtDevice(), payload.startedAtServer(),
+              payload.completedAtDevice(), payload.submittedAtServer(), payload.canceledAt(), payload.canceledReason(),
+              payload.equipmentConfirmedAt(), payload.startedLatitude(), payload.startedLongitude(),
+              payload.completedLatitude(), payload.completedLongitude(), payload.version(), payload.updatedAt(), items)));
+    }
+  }
+
+  private static Cursor parseCursor(String rawCursor) {
+    if (rawCursor == null || rawCursor.isBlank()) {
+      return new Cursor(BOOTSTRAP_AT, BOOTSTRAP_ID);
+    }
+    String trimmed = rawCursor.trim();
+    int sep = trimmed.indexOf('|');
+    if (sep <= 0 || sep != trimmed.lastIndexOf('|') || sep == trimmed.length() - 1) {
+      throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "cursor must be opaque instant|uuid");
+    }
+    String instantPart = trimmed.substring(0, sep);
+    String uuidPart = trimmed.substring(sep + 1);
+    try {
+      Instant afterAt = Instant.parse(instantPart);
+      UUID afterId = UUID.fromString(uuidPart);
+      return new Cursor(afterAt, afterId);
+    } catch (DateTimeParseException | IllegalArgumentException ex) {
+      throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "cursor must be opaque instant|uuid");
+    }
+  }
+
+  private static String formatCursor(Instant at, UUID id) {
+    return CURSOR_TIME.format(at) + "|" + id;
+  }
+
+  private static Instant instant(Timestamp value) {
+    return value == null ? null : value.toInstant();
+  }
+
+  private static UUID optionalUuid(String value) {
+    return value == null || value.isBlank() ? null : UUID.fromString(value);
+  }
+
+  public record PullResult(List<SyncChange> changes, String nextCursor, Instant serverTime, boolean hasMore) {}
+  public record SyncChange(String entityType, UUID entityId, String operation, Instant updatedAt, Object payload) {}
+  public record InspectionPullPayload(
+      UUID id, UUID clientId, UUID siteId, UUID equipmentId, UUID templateVersionId, UUID technicianId, UUID supervisorId,
+      String title, String instructions, String priority, String status, Instant scheduledFor, Instant startedAtDevice,
+      Instant startedAtServer, Instant completedAtDevice, Instant submittedAtServer, Instant canceledAt, String canceledReason,
+      Instant equipmentConfirmedAt, BigDecimal startedLatitude, BigDecimal startedLongitude, BigDecimal completedLatitude,
+      BigDecimal completedLongitude, int version, Instant updatedAt, List<InspectionItemPullPayload> items) {}
+  public record InspectionItemPullPayload(
+      UUID id, String sectionTitle, String sectionDescription, int sectionOrder, String itemCode, String itemTitle,
+      String itemDescription, String responseType, boolean required, String rulesJson, String optionsJson, int itemOrder) {}
+  public record ResponsePullPayload(
+      UUID id, UUID inspectionId, UUID inspectionItemId, String valueText, BigDecimal valueNumber, Boolean valueBoolean,
+      LocalDate valueDate, String valueJson, String observation, String conformity, Instant answeredAtDevice,
+      Instant serverReceivedAt, UUID answeredBy, int version, Instant updatedAt) {}
+
+  private record Cursor(Instant afterAt, UUID afterId) {}
+  private record ChangeCandidate(
+      String entityType, UUID entityId, String operation, Instant updatedAt, UUID streamKey, Object payload) {}
 }

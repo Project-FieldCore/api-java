@@ -33,6 +33,8 @@ class OpenApiContractTest {
     assertTrue(contract.contains("TemplateItemUpdateRequest:"));
     assertTrue(contract.contains("draftVersionId:"));
     assertTrue(contract.contains("/api/v1/mobile/sync/push:"));
+    assertTrue(contract.contains("/api/v1/mobile/sync/pull:"));
+    assertTrue(contract.contains("MobileSyncPullResponse:"));
     assertTrue(contract.contains("DEPENDENCY_FAILED"));
     assertTrue(contract.contains("InspectionPriority:"));
     assertTrue(contract.contains("scheduledFor:"));

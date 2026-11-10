@@ -41,6 +41,7 @@ class InspectionControllerTest {
   @AfterEach void clearDatabase() {
     jdbc.update("delete from sync_idempotency");
     jdbc.update("delete from mobile_sync_operation");
+    jdbc.update("delete from mobile_sync_tombstone");
     jdbc.update("delete from evidence");
     jdbc.update("delete from non_conformity");
     jdbc.update("delete from inspection_response");
