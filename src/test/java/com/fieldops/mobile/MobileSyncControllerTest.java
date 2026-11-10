@@ -31,6 +31,7 @@ class MobileSyncControllerTest {
   @BeforeEach void clean() { clear(); }
   @AfterEach void clear() {
     jdbc.update("delete from mobile_sync_operation");
+    jdbc.update("delete from mobile_sync_tombstone");
     jdbc.update("delete from evidence");
     jdbc.update("delete from non_conformity");
     jdbc.update("delete from inspection_response");

@@ -45,9 +45,15 @@ public class InspectionSchedulingService {
     if (current.status() != Status.DRAFT && current.status() != Status.ASSIGNED) {
       throw new ApiException(HttpStatus.CONFLICT, "INSPECTION_NOT_ASSIGNABLE", "Inspection cannot be assigned in its current state");
     }
+    UUID previousTechnicianId = current.technicianId();
     int updated = jdbc.update("update inspection set technician_id=?,status='ASSIGNED',updated_at=current_timestamp,version=version+1 where id=? and version=? and status in ('DRAFT','ASSIGNED')",
         command.technicianId(), inspectionId, command.version());
     if (updated == 0) throw new ApiException(HttpStatus.CONFLICT, "VERSION_CONFLICT", "Inspection was modified by another request");
+    if (!previousTechnicianId.equals(command.technicianId())) {
+      jdbc.update(
+          "insert into mobile_sync_tombstone (id,technician_id,entity_type,entity_id,removed_at) values (?,?,?,?,current_timestamp)",
+          UUID.randomUUID(), previousTechnicianId, "INSPECTION", inspectionId);
+    }
     return get(inspectionId);
   }
 
