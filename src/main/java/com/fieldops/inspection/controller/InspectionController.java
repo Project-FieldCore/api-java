@@ -82,6 +82,12 @@ public class InspectionController {
     return inspections.monitoring(inspectionId);
   }
 
+  @GetMapping("/{inspectionId}/checklist")
+  @PreAuthorize("hasAnyRole('ADMIN','SUPERVISOR')")
+  public List<InspectionExecutionService.ChecklistSection> reviewChecklist(@PathVariable UUID inspectionId) {
+    return execution.checklistForReview(inspectionId);
+  }
+
   @GetMapping("/{inspectionId}/evidence/{evidenceId}/content")
   @PreAuthorize("hasAnyRole('ADMIN','SUPERVISOR')")
   public ResponseEntity<byte[]> evidenceContent(@PathVariable UUID inspectionId, @PathVariable UUID evidenceId) {
