@@ -129,8 +129,20 @@ public class InspectionSchedulingService {
   public Monitoring monitoring(UUID inspectionId) {
     get(inspectionId);
     List<Evidence> evidences = jdbc.query(
-        "select e.id,e.inspection_response_id,r.inspection_item_id,e.storage_key,e.file_name,e.content_type,e.size_bytes,e.created_by,e.created_at from evidence e join inspection_response r on r.id=e.inspection_response_id where r.inspection_id=? order by e.created_at,e.id",
-        (rs, row) -> new Evidence(uuid(rs.getString("id")), uuid(rs.getString("inspection_response_id")), uuid(rs.getString("inspection_item_id")), rs.getString("storage_key"), rs.getString("file_name"), rs.getString("content_type"), rs.getLong("size_bytes"), optionalUuid(rs.getString("created_by")), rs.getTimestamp("created_at").toInstant()),
+        """
+        select e.id, e.inspection_response_id, r.inspection_item_id, s.item_title, s.section_title, s.section_order, s.item_order,
+               e.storage_key, e.file_name, e.content_type, e.size_bytes, e.created_by, e.created_at
+        from evidence e
+        join inspection_response r on r.id = e.inspection_response_id
+        join inspection_item_snapshot s on s.id = r.inspection_item_id
+        where r.inspection_id = ?
+        order by s.section_order, s.item_order, e.created_at, e.id
+        """,
+        (rs, row) -> new Evidence(
+            uuid(rs.getString("id")), uuid(rs.getString("inspection_response_id")), uuid(rs.getString("inspection_item_id")),
+            rs.getString("item_title"), rs.getString("section_title"), rs.getInt("section_order"), rs.getInt("item_order"),
+            rs.getString("storage_key"), rs.getString("file_name"), rs.getString("content_type"), rs.getLong("size_bytes"),
+            optionalUuid(rs.getString("created_by")), rs.getTimestamp("created_at").toInstant()),
         inspectionId);
     List<NonConformity> nonConformities = jdbc.query(
         "select id,inspection_response_id,severity,description,status,resolved_at,resolved_by,created_at from non_conformity where inspection_id=? order by created_at,id",
@@ -145,10 +157,23 @@ public class InspectionSchedulingService {
     get(inspectionId);
     List<EvidenceContent> rows = jdbc.query(
         "select e.file_name,e.content_type,e.storage_key from evidence e join inspection_response r on r.id=e.inspection_response_id where e.id=? and r.inspection_id=?",
-        (rs, row) -> new EvidenceContent(rs.getString("file_name"), rs.getString("content_type"), files.read(rs.getString("storage_key"))),
+        (rs, row) -> new EvidenceContent(rs.getString("file_name"), normalizeImageContentType(rs.getString("content_type")), files.read(rs.getString("storage_key"))),
         evidenceId, inspectionId);
     if (rows.isEmpty()) throw new ApiException(HttpStatus.NOT_FOUND, "EVIDENCE_NOT_FOUND", "Evidence not found");
     return rows.getFirst();
+  }
+
+  private static String normalizeImageContentType(String contentType) {
+    if (contentType == null || contentType.isBlank()) {
+      throw new ApiException(HttpStatus.NOT_FOUND, "EVIDENCE_NOT_FOUND", "Evidence file not found");
+    }
+    String normalized = contentType.trim().toLowerCase();
+    int separator = normalized.indexOf(';');
+    if (separator >= 0) normalized = normalized.substring(0, separator).trim();
+    if (!normalized.equals("image/jpeg") && !normalized.equals("image/png") && !normalized.equals("image/webp")) {
+      throw new ApiException(HttpStatus.NOT_FOUND, "EVIDENCE_NOT_FOUND", "Evidence file not found");
+    }
+    return normalized;
   }
 
   private static Object[] concat(Object[] values, Object... tail) {
@@ -226,7 +251,7 @@ public class InspectionSchedulingService {
   public enum Severity { LOW, MEDIUM, HIGH, CRITICAL }
   public enum NonConformityStatus { OPEN, RESOLVED, WAIVED }
   public record Monitoring(UUID inspectionId, List<Evidence> evidences, List<NonConformity> nonConformities) {}
-  public record Evidence(UUID id, UUID inspectionResponseId, UUID inspectionItemId, String storageKey, String fileName, String contentType, long sizeBytes, UUID createdBy, Instant createdAt) {}
+  public record Evidence(UUID id, UUID inspectionResponseId, UUID inspectionItemId, String itemTitle, String sectionTitle, int sectionOrder, int itemOrder, String storageKey, String fileName, String contentType, long sizeBytes, UUID createdBy, Instant createdAt) {}
   public record NonConformity(UUID id, UUID inspectionResponseId, Severity severity, String description, NonConformityStatus status, Instant resolvedAt, UUID resolvedBy, Instant createdAt) {}
   public record EvidenceContent(String fileName, String contentType, byte[] bytes) {}
   private static UUID uuid(String value) { return UUID.fromString(value); }
