@@ -46,15 +46,42 @@ public class InspectionExecutionService {
 
   public List<ChecklistSection> checklist(UUID inspectionId, UUID technicianId) {
     detail(inspectionId, technicianId);
+    return loadChecklist(inspectionId);
+  }
+
+  /** Read-only checklist for ADMIN/SUPERVISOR review — any inspection, no ownership filter. */
+  public List<ChecklistSection> checklistForReview(UUID inspectionId) {
+    requireExists(inspectionId);
+    return loadChecklist(inspectionId);
+  }
+
+  private List<ChecklistSection> loadChecklist(UUID inspectionId) {
     List<ChecklistItem> items = jdbc.query(
-        "select s.id,s.section_title,s.section_order,s.item_title,s.item_description,s.response_type,s.required,s.rules_json,s.options_json,s.item_order,r.observation,r.value_text,r.conformity from inspection_item_snapshot s left join inspection_response r on r.inspection_item_id=s.id where s.inspection_id=? order by s.section_order,s.item_order",
-        (rs, row) -> new ChecklistItem(UUID.fromString(rs.getString("id")), rs.getString("section_title"), rs.getInt("section_order"), rs.getString("item_title"), rs.getString("item_description"), rs.getString("response_type"), rs.getBoolean("required"), rs.getString("rules_json"), rs.getString("options_json"), rs.getInt("item_order"), rs.getString("observation"), rs.getString("value_text"), rs.getString("conformity")),
+        "select s.id,s.section_title,s.section_order,s.item_title,s.item_description,s.response_type,s.required,s.rules_json,s.options_json,s.item_order,"
+            + "r.observation,r.value_text,r.value_number,r.value_boolean,r.value_date,r.conformity "
+            + "from inspection_item_snapshot s left join inspection_response r on r.inspection_item_id=s.id "
+            + "where s.inspection_id=? order by s.section_order,s.item_order",
+        (rs, row) -> {
+          Date valueDate = rs.getDate("value_date");
+          return new ChecklistItem(
+              UUID.fromString(rs.getString("id")), rs.getString("section_title"), rs.getInt("section_order"),
+              rs.getString("item_title"), rs.getString("item_description"), rs.getString("response_type"),
+              rs.getBoolean("required"), rs.getString("rules_json"), rs.getString("options_json"), rs.getInt("item_order"),
+              rs.getString("observation"), rs.getString("value_text"), rs.getBigDecimal("value_number"),
+              (Boolean) rs.getObject("value_boolean"), valueDate == null ? null : valueDate.toLocalDate(),
+              rs.getString("conformity"));
+        },
         inspectionId);
     LinkedHashMap<String, ChecklistSection> sections = new LinkedHashMap<>();
     for (ChecklistItem item : items) {
       sections.computeIfAbsent(item.sectionOrder() + ":" + item.sectionTitle(), key -> new ChecklistSection(item.sectionTitle(), item.sectionOrder(), new ArrayList<>())).items().add(item);
     }
     return List.copyOf(sections.values());
+  }
+
+  private void requireExists(UUID inspectionId) {
+    Integer count = jdbc.queryForObject("select count(*) from inspection where id=?", Integer.class, inspectionId);
+    if (count == null || count == 0) throw notFound();
   }
 
   @Transactional
@@ -283,7 +310,7 @@ public class InspectionExecutionService {
   private record EquipmentMatch(UUID id, UUID siteId, String status) {}
   private record InspectionLink(UUID siteId, UUID equipmentId) {}
   public record ChecklistSection(String title, int order, List<ChecklistItem> items) {}
-  public record ChecklistItem(UUID id, String sectionTitle, int sectionOrder, String title, String description, String responseType, boolean required, String rulesJson, String optionsJson, int itemOrder, String observation, String valueText, String conformity) {}
+  public record ChecklistItem(UUID id, String sectionTitle, int sectionOrder, String title, String description, String responseType, boolean required, String rulesJson, String optionsJson, int itemOrder, String observation, String valueText, BigDecimal valueNumber, Boolean valueBoolean, LocalDate valueDate, String conformity) {}
   public record AnswerInput(UUID itemId, String valueText, BigDecimal valueNumber, Boolean valueBoolean, LocalDate valueDate, String conformity, String observation) {}
   public record CompleteCommand(int version, OffsetDateTime completedAtDevice, BigDecimal latitude, BigDecimal longitude, List<AnswerInput> answers) {}
   public record EvidenceFile(UUID id, UUID inspectionResponseId, UUID inspectionItemId, String fileName, String contentType, long sizeBytes, Instant createdAt) {}

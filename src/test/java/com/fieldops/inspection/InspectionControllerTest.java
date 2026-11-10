@@ -310,6 +310,36 @@ class InspectionControllerTest {
   }
 
   @Test
+  void supervisorReadsChecklistAnswersAggregatedBySection() throws Exception {
+    UUID supervisor = insertUser("SUPERVISOR", "ACTIVE");
+    UUID technician = insertUser("TECHNICIAN", "ACTIVE");
+    UUID client = insertClient(); UUID site = insertSite(client); UUID version = insertPublishedVersion();
+    UUID inspection = insertInspection(version, client, site, technician, supervisor, "SUBMITTED", 1);
+    UUID item = insertSnapshot(inspection);
+    jdbc.update(
+        "insert into inspection_response (id,inspection_id,inspection_item_id,value_text,value_number,value_boolean,value_date,conformity,observation,answered_by) values (?,?,?,?,?,?,?,?,?,?)",
+        UUID.randomUUID(), inspection, item, "texto", new java.math.BigDecimal("12.50"), true,
+        java.sql.Date.valueOf("2026-08-01"), "NON_CONFORMING", "Trinca na base", technician);
+
+    mvc.perform(get("/api/v1/inspections/{inspectionId}/checklist", inspection).with(principal(supervisor, "SUPERVISOR")))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$[0].title").exists())
+        .andExpect(jsonPath("$[0].items[0].id").value(item.toString()))
+        .andExpect(jsonPath("$[0].items[0].valueText").value("texto"))
+        .andExpect(jsonPath("$[0].items[0].valueNumber").value(12.50))
+        .andExpect(jsonPath("$[0].items[0].valueBoolean").value(true))
+        .andExpect(jsonPath("$[0].items[0].valueDate").value("2026-08-01"))
+        .andExpect(jsonPath("$[0].items[0].conformity").value("NON_CONFORMING"))
+        .andExpect(jsonPath("$[0].items[0].observation").value("Trinca na base"));
+    mvc.perform(get("/api/v1/inspections/{inspectionId}/checklist", inspection).with(principal(technician, "TECHNICIAN")))
+        .andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value("ACCESS_DENIED"));
+    mvc.perform(get("/api/v1/inspections/{inspectionId}/checklist", UUID.randomUUID()).with(principal(supervisor, "SUPERVISOR")))
+        .andExpect(status().isNotFound()).andExpect(jsonPath("$.code").value("INSPECTION_NOT_FOUND"));
+    mvc.perform(get("/api/v1/inspections/{inspectionId}/checklist", inspection))
+        .andExpect(status().isUnauthorized()).andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
+  }
+
+  @Test
   void supervisorViewsSynchronizedEvidenceAndNonConformities() throws Exception {
     UUID supervisor = insertUser("SUPERVISOR", "ACTIVE");
     UUID technician = insertUser("TECHNICIAN", "ACTIVE");
