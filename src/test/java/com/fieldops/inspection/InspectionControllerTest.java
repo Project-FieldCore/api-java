@@ -6,6 +6,8 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -33,6 +35,7 @@ import org.springframework.test.web.servlet.MockMvc;
 class InspectionControllerTest {
   @Autowired MockMvc mvc;
   @Autowired JdbcTemplate jdbc;
+  @Autowired EvidenceFileStore evidenceFiles;
 
   @BeforeEach void clean() {
     clearDatabase();
@@ -356,9 +359,44 @@ class InspectionControllerTest {
         .andExpect(jsonPath("$.inspectionId").value(inspection.toString()))
         .andExpect(jsonPath("$.evidences[0].fileName").value("foto.jpg"))
         .andExpect(jsonPath("$.evidences[0].inspectionItemId").value(item.toString()))
+        .andExpect(jsonPath("$.evidences[0].itemTitle").value("Item"))
+        .andExpect(jsonPath("$.evidences[0].sectionTitle").value("Secao"))
+        .andExpect(jsonPath("$.evidences[0].sectionOrder").value(0))
+        .andExpect(jsonPath("$.evidences[0].itemOrder").value(0))
         .andExpect(jsonPath("$.nonConformities[0].severity").value("HIGH"))
         .andExpect(jsonPath("$.nonConformities[0].description").value("Proteção ausente"));
     mvc.perform(get("/api/v1/inspections/{inspectionId}/monitoring", inspection).with(principal(technician, "TECHNICIAN")))
+        .andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value("ACCESS_DENIED"));
+  }
+
+  @Test
+  void supervisorDownloadsEvidenceContentLinkedToInspection() throws Exception {
+    UUID supervisor = insertUser("SUPERVISOR", "ACTIVE");
+    UUID technician = insertUser("TECHNICIAN", "ACTIVE");
+    UUID client = insertClient(); UUID site = insertSite(client); UUID version = insertPublishedVersion();
+    UUID inspection = insertInspection(version, client, site, technician, supervisor, "SUBMITTED", 1);
+    UUID otherInspection = insertInspection(version, client, site, technician, supervisor, "SUBMITTED", 1);
+    UUID item = insertSnapshot(inspection);
+    UUID response = UUID.randomUUID(); UUID evidence = UUID.randomUUID();
+    byte[] bytes = new byte[] {(byte) 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A};
+    String storageKey = "inspections/" + inspection + "/" + evidence + ".png";
+    evidenceFiles.write(storageKey, bytes);
+    jdbc.update("insert into inspection_response (id,inspection_id,inspection_item_id,conformity,answered_by) values (?,?,?,?,?)",
+        response, inspection, item, "NON_CONFORMING", technician);
+    jdbc.update("insert into evidence (id,inspection_response_id,storage_key,file_name,content_type,size_bytes,created_by) values (?,?,?,?,?,?,?)",
+        evidence, response, storageKey, "foto.png", "image/png", bytes.length, technician);
+
+    mvc.perform(get("/api/v1/inspections/{inspectionId}/evidence/{evidenceId}/content", inspection, evidence)
+            .with(principal(supervisor, "SUPERVISOR")))
+        .andExpect(status().isOk())
+        .andExpect(header().string("Content-Type", "image/png"))
+        .andExpect(header().string("Cache-Control", "private"))
+        .andExpect(content().bytes(bytes));
+    mvc.perform(get("/api/v1/inspections/{inspectionId}/evidence/{evidenceId}/content", otherInspection, evidence)
+            .with(principal(supervisor, "SUPERVISOR")))
+        .andExpect(status().isNotFound()).andExpect(jsonPath("$.code").value("EVIDENCE_NOT_FOUND"));
+    mvc.perform(get("/api/v1/inspections/{inspectionId}/evidence/{evidenceId}/content", inspection, evidence)
+            .with(principal(technician, "TECHNICIAN")))
         .andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value("ACCESS_DENIED"));
   }
 

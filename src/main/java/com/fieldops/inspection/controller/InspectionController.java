@@ -92,7 +92,10 @@ public class InspectionController {
   @PreAuthorize("hasAnyRole('ADMIN','SUPERVISOR')")
   public ResponseEntity<byte[]> evidenceContent(@PathVariable UUID inspectionId, @PathVariable UUID evidenceId) {
     InspectionSchedulingService.EvidenceContent content = inspections.evidenceContent(inspectionId, evidenceId);
-    return ResponseEntity.ok().header("Content-Type", content.contentType()).body(content.bytes());
+    return ResponseEntity.ok()
+        .header(org.springframework.http.HttpHeaders.CONTENT_TYPE, content.contentType())
+        .header(org.springframework.http.HttpHeaders.CACHE_CONTROL, "private")
+        .body(content.bytes());
   }
 
   @PatchMapping("/{inspectionId}/assignee")
