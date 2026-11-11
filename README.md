@@ -30,6 +30,7 @@ Especificação do produto, gestão e convenções (fonte canônica):
 ## Executar (dev)
 
 ```bash
+export JWT_SECRET='local-dev-only-jwt-secret-key-32chars!!'
 ./mvnw spring-boot:run
 ```
 
@@ -41,6 +42,14 @@ Especificação do produto, gestão e convenções (fonte canônica):
 | H2 console | http://localhost:8080/h2-console |
 
 Profile `postgres`: `SPRING_PROFILES_ACTIVE=postgres` (requer `JWT_SECRET` e PostgreSQL).
+
+### Demo seed (`dev` only)
+
+On startup with profile `dev`, `DevDemoSeed` creates (idempotently) admin / supervisor / technician,
+cliente→local→equipamento, modelo publicado e inspeções em ASSIGNED / IN_PROGRESS / SUBMITTED / UNDER_REVIEW.
+
+- Password (all demo users): `DemoPass123!`
+- Details, credentials table, reset: **[docs/DEMO_SEED.md](docs/DEMO_SEED.md)**
 
 ## Banco de dados e migrations
 
