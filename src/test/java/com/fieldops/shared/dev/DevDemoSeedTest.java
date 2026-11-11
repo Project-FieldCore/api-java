@@ -2,6 +2,7 @@ package com.fieldops.shared.dev;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -9,12 +10,16 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.TestPropertySource;
+import org.springframework.test.annotation.DirtiesContext;
 
 @SpringBootTest
 @ActiveProfiles("dev")
+@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 @TestPropertySource(properties = {
     "fieldops.security.jwt.secret=test-signing-key-for-auth-integration-only-32",
-    "fieldops.dev.seed.enabled=true"
+    "fieldops.dev.seed.enabled=true",
+    // Isolate from other SpringBootTest classes sharing jdbc:h2:mem:fieldops
+    "spring.datasource.url=jdbc:h2:mem:fieldops_demo_seed;DB_CLOSE_DELAY=-1;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE"
 })
 class DevDemoSeedTest {
   @Autowired DevDemoSeed seed;
@@ -22,6 +27,16 @@ class DevDemoSeedTest {
 
   @BeforeEach
   void resetAndSeed() {
+    clearAll();
+    seed.seedAll();
+  }
+
+  @AfterEach
+  void tearDown() {
+    clearAll();
+  }
+
+  private void clearAll() {
     jdbc.update("delete from sync_idempotency");
     jdbc.update("delete from mobile_sync_operation");
     jdbc.update("delete from mobile_sync_tombstone");
@@ -41,7 +56,6 @@ class DevDemoSeedTest {
     jdbc.update("delete from client");
     jdbc.update("delete from refresh_token");
     jdbc.update("delete from app_user");
-    seed.seedAll();
   }
 
   @Test
