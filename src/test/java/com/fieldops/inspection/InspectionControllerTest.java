@@ -49,6 +49,8 @@ class InspectionControllerTest {
     jdbc.update("delete from non_conformity");
     jdbc.update("delete from inspection_response");
     jdbc.update("delete from inspection_item_snapshot");
+    jdbc.update("delete from inspection_review");
+    jdbc.update("delete from audit_event");
     jdbc.update("delete from inspection");
     jdbc.update("delete from template_item");
     jdbc.update("delete from template_section");
@@ -398,6 +400,43 @@ class InspectionControllerTest {
     mvc.perform(get("/api/v1/inspections/{inspectionId}/evidence/{evidenceId}/content", inspection, evidence)
             .with(principal(technician, "TECHNICIAN")))
         .andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value("ACCESS_DENIED"));
+  }
+
+  @Test
+  void supervisorStartsFormalReviewAndWritesAudit() throws Exception {
+    UUID supervisor = insertUser("SUPERVISOR", "ACTIVE");
+    UUID technician = insertUser("TECHNICIAN", "ACTIVE");
+    UUID client = insertClient(); UUID site = insertSite(client); UUID version = insertPublishedVersion();
+    UUID inspection = insertInspection(version, client, site, technician, supervisor, "SUBMITTED", 1);
+    jdbc.update("update inspection set submitted_at_server=current_timestamp where id=?", inspection);
+
+    mvc.perform(post("/api/v1/inspections/{inspectionId}/review/start", inspection).with(principal(supervisor, "SUPERVISOR")))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.id").value(inspection.toString()))
+        .andExpect(jsonPath("$.status").value("UNDER_REVIEW"))
+        .andExpect(jsonPath("$.version").value(2));
+    org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject(
+        "select count(*) from audit_event where entity_type='INSPECTION' and entity_id=? and action='REVIEW_STARTED' and actor_id=?",
+        Integer.class, inspection, supervisor)).isEqualTo(1);
+    mvc.perform(get("/api/v1/inspections/review-queue").with(principal(supervisor, "SUPERVISOR")))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.items.length()").value(0));
+
+    mvc.perform(post("/api/v1/inspections/{inspectionId}/review/start", inspection).with(principal(supervisor, "SUPERVISOR")))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.status").value("UNDER_REVIEW"))
+        .andExpect(jsonPath("$.version").value(2));
+    org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject(
+        "select count(*) from audit_event where entity_id=? and action='REVIEW_STARTED'", Integer.class, inspection)).isEqualTo(1);
+
+    mvc.perform(post("/api/v1/inspections/{inspectionId}/review/start", inspection).with(principal(technician, "TECHNICIAN")))
+        .andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value("ACCESS_DENIED"));
+
+    UUID assigned = insertInspection(version, client, site, technician, supervisor, "ASSIGNED", 0);
+    mvc.perform(post("/api/v1/inspections/{inspectionId}/review/start", assigned).with(principal(supervisor, "SUPERVISOR")))
+        .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("INSPECTION_NOT_REVIEWABLE"));
+    mvc.perform(post("/api/v1/inspections/{inspectionId}/review/start", UUID.randomUUID()).with(principal(supervisor, "SUPERVISOR")))
+        .andExpect(status().isNotFound()).andExpect(jsonPath("$.code").value("INSPECTION_NOT_FOUND"));
   }
 
   @Test
