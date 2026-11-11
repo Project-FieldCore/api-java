@@ -105,6 +105,13 @@ public class InspectionController {
     return inspections.assign(inspectionId, new InspectionSchedulingService.AssignmentCommand(body.technicianId(), body.version()));
   }
 
+  @PostMapping("/{inspectionId}/review/start")
+  @PreAuthorize("hasAnyRole('ADMIN','SUPERVISOR')")
+  public InspectionSchedulingService.Inspection startReview(
+      @PathVariable UUID inspectionId, @AuthenticationPrincipal FieldOpsUserPrincipal principal) {
+    return inspections.startReview(inspectionId, principal.userId());
+  }
+
   @PatchMapping("/{inspectionId}/cancel")
   @PreAuthorize("hasAnyRole('ADMIN','SUPERVISOR')")
   public InspectionSchedulingService.Inspection cancel(

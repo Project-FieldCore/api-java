@@ -36,6 +36,8 @@ class MobileSyncControllerTest {
     jdbc.update("delete from non_conformity");
     jdbc.update("delete from inspection_response");
     jdbc.update("delete from inspection_item_snapshot");
+    jdbc.update("delete from inspection_review");
+    jdbc.update("delete from audit_event");
     jdbc.update("delete from inspection");
     jdbc.update("delete from template_item");
     jdbc.update("delete from template_section");

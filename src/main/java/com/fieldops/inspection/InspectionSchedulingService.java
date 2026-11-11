@@ -57,6 +57,36 @@ public class InspectionSchedulingService {
     return get(inspectionId);
   }
 
+  /**
+   * AC-REVIEW: inicia revisão formal (SUBMITTED → UNDER_REVIEW) e registra {@code audit_event}.
+   * Já em UNDER_REVIEW: retorna a inspeção atual sem novo audit (idempotente).
+   */
+  @Transactional
+  public Inspection startReview(UUID inspectionId, UUID reviewerId) {
+    Inspection current = get(inspectionId);
+    if (current.status() == Status.UNDER_REVIEW) {
+      return current;
+    }
+    if (current.status() != Status.SUBMITTED) {
+      throw new ApiException(HttpStatus.CONFLICT, "INSPECTION_NOT_REVIEWABLE",
+          "Only a submitted inspection can enter review");
+    }
+    int updated = jdbc.update(
+        "update inspection set status='UNDER_REVIEW',updated_at=current_timestamp,version=version+1 where id=? and status='SUBMITTED'",
+        inspectionId);
+    if (updated == 0) {
+      Inspection raced = get(inspectionId);
+      if (raced.status() == Status.UNDER_REVIEW) return raced;
+      throw new ApiException(HttpStatus.CONFLICT, "INSPECTION_NOT_REVIEWABLE",
+          "Only a submitted inspection can enter review");
+    }
+    jdbc.update(
+        "insert into audit_event (id,actor_id,entity_type,entity_id,action,payload) values (?,?,?,?,?,?)",
+        UUID.randomUUID(), reviewerId, "INSPECTION", inspectionId, "REVIEW_STARTED",
+        "{\"from\":\"SUBMITTED\",\"to\":\"UNDER_REVIEW\"}");
+    return get(inspectionId);
+  }
+
   /** RN-029/030: registra a trilha de cancelamento e nunca cancela uma inspeção aprovada. */
   @Transactional
   public Inspection cancel(UUID inspectionId, CancellationCommand command, UUID canceledBy) {

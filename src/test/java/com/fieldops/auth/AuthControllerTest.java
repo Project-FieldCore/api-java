@@ -35,6 +35,7 @@ class AuthControllerTest {
   @BeforeEach
   void clean() {
     jdbc.update("delete from refresh_token");
+    jdbc.update("delete from audit_event");
     jdbc.update("delete from app_user");
   }
 
