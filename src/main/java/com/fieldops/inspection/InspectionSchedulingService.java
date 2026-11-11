@@ -1,11 +1,14 @@
 package com.fieldops.inspection;
 
+import com.fieldops.shared.audit.AuditService;
 import com.fieldops.shared.error.ApiException;
 import com.fieldops.shared.pagination.PageQuery;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.time.OffsetDateTime;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -16,10 +19,12 @@ import org.springframework.transaction.annotation.Transactional;
 public class InspectionSchedulingService {
   private final JdbcTemplate jdbc;
   private final EvidenceFileStore files;
+  private final AuditService audit;
 
-  public InspectionSchedulingService(JdbcTemplate jdbc, EvidenceFileStore files) {
+  public InspectionSchedulingService(JdbcTemplate jdbc, EvidenceFileStore files, AuditService audit) {
     this.jdbc = jdbc;
     this.files = files;
+    this.audit = audit;
   }
 
   @Transactional
@@ -35,17 +40,23 @@ public class InspectionSchedulingService {
         supervisorId, title, command.instructions(), command.priority().name(), Status.ASSIGNED.name(),
         Timestamp.from(command.scheduledFor().toInstant()));
     copyItemSnapshot(id, command.templateVersionId());
+    Map<String, Object> payload = new LinkedHashMap<>();
+    payload.put("from", null);
+    payload.put("to", Status.ASSIGNED.name());
+    payload.put("technicianId", command.technicianId().toString());
+    audit.recordInspection(supervisorId, id, "SCHEDULED", payload);
     return get(id);
   }
 
   @Transactional
-  public Inspection assign(UUID inspectionId, AssignmentCommand command) {
+  public Inspection assign(UUID inspectionId, AssignmentCommand command, UUID actorId) {
     Inspection current = get(inspectionId);
     requireActiveTechnician(command.technicianId());
     if (current.status() != Status.DRAFT && current.status() != Status.ASSIGNED) {
       throw new ApiException(HttpStatus.CONFLICT, "INSPECTION_NOT_ASSIGNABLE", "Inspection cannot be assigned in its current state");
     }
     UUID previousTechnicianId = current.technicianId();
+    String fromStatus = current.status().name();
     int updated = jdbc.update("update inspection set technician_id=?,status='ASSIGNED',updated_at=current_timestamp,version=version+1 where id=? and version=? and status in ('DRAFT','ASSIGNED')",
         command.technicianId(), inspectionId, command.version());
     if (updated == 0) throw new ApiException(HttpStatus.CONFLICT, "VERSION_CONFLICT", "Inspection was modified by another request");
@@ -54,6 +65,12 @@ public class InspectionSchedulingService {
           "insert into mobile_sync_tombstone (id,technician_id,entity_type,entity_id,removed_at) values (?,?,?,?,current_timestamp)",
           UUID.randomUUID(), previousTechnicianId, "INSPECTION", inspectionId);
     }
+    Map<String, Object> payload = new LinkedHashMap<>();
+    payload.put("from", fromStatus);
+    payload.put("to", Status.ASSIGNED.name());
+    payload.put("previousTechnicianId", previousTechnicianId.toString());
+    payload.put("technicianId", command.technicianId().toString());
+    audit.recordInspection(actorId, inspectionId, "ASSIGNED", payload);
     return get(inspectionId);
   }
 
@@ -80,10 +97,7 @@ public class InspectionSchedulingService {
       throw new ApiException(HttpStatus.CONFLICT, "INSPECTION_NOT_REVIEWABLE",
           "Only a submitted inspection can enter review");
     }
-    jdbc.update(
-        "insert into audit_event (id,actor_id,entity_type,entity_id,action,payload) values (?,?,?,?,?,?)",
-        UUID.randomUUID(), reviewerId, "INSPECTION", inspectionId, "REVIEW_STARTED",
-        "{\"from\":\"SUBMITTED\",\"to\":\"UNDER_REVIEW\"}");
+    audit.recordInspection(reviewerId, inspectionId, "REVIEW_STARTED", Status.SUBMITTED.name(), Status.UNDER_REVIEW.name());
     return get(inspectionId);
   }
 
@@ -115,10 +129,7 @@ public class InspectionSchedulingService {
     jdbc.update(
         "insert into inspection_review (id,inspection_id,reviewer_id,decision,comment) values (?,?,?,?,?)",
         UUID.randomUUID(), inspectionId, reviewerId, "APPROVED", normalizedComment);
-    jdbc.update(
-        "insert into audit_event (id,actor_id,entity_type,entity_id,action,payload) values (?,?,?,?,?,?)",
-        UUID.randomUUID(), reviewerId, "INSPECTION", inspectionId, "REVIEW_APPROVED",
-        "{\"from\":\"UNDER_REVIEW\",\"to\":\"APPROVED\"}");
+    audit.recordInspection(reviewerId, inspectionId, "REVIEW_APPROVED", Status.UNDER_REVIEW.name(), Status.APPROVED.name());
     return get(inspectionId);
   }
 
@@ -155,10 +166,7 @@ public class InspectionSchedulingService {
     jdbc.update(
         "insert into inspection_review (id,inspection_id,reviewer_id,decision,comment) values (?,?,?,?,?)",
         UUID.randomUUID(), inspectionId, reviewerId, "REJECTED", reason);
-    jdbc.update(
-        "insert into audit_event (id,actor_id,entity_type,entity_id,action,payload) values (?,?,?,?,?,?)",
-        UUID.randomUUID(), reviewerId, "INSPECTION", inspectionId, "REVIEW_REJECTED",
-        "{\"from\":\"UNDER_REVIEW\",\"to\":\"REJECTED\"}");
+    audit.recordInspection(reviewerId, inspectionId, "REVIEW_REJECTED", Status.UNDER_REVIEW.name(), Status.REJECTED.name());
     return get(inspectionId);
   }
 
@@ -176,13 +184,26 @@ public class InspectionSchedulingService {
     if (current.status() == Status.CANCELED) {
       throw new ApiException(HttpStatus.CONFLICT, "INSPECTION_ALREADY_CANCELED", "Inspection is already canceled");
     }
+    String fromStatus = current.status().name();
+    String reason = command.reason().trim();
     int updated = jdbc.update(
         "update inspection set status='CANCELED',canceled_by=?,canceled_at=current_timestamp,canceled_reason=?,updated_at=current_timestamp,version=version+1 where id=? and version=? and status not in ('APPROVED','CANCELED')",
-        canceledBy, command.reason().trim(), inspectionId, command.version());
+        canceledBy, reason, inspectionId, command.version());
     if (updated == 0) {
       throw new ApiException(HttpStatus.CONFLICT, "VERSION_CONFLICT", "Inspection was modified by another request");
     }
+    Map<String, Object> payload = new LinkedHashMap<>();
+    payload.put("from", fromStatus);
+    payload.put("to", Status.CANCELED.name());
+    payload.put("reason", reason);
+    audit.recordInspection(canceledBy, inspectionId, "CANCELED", payload);
     return get(inspectionId);
+  }
+
+  /** Chronological audit trail for supervisors/admins (no secrets). */
+  public List<AuditService.AuditEventView> auditTrail(UUID inspectionId) {
+    get(inspectionId);
+    return audit.listForInspection(inspectionId);
   }
 
   public List<Inspection> assignedTo(UUID technicianId) {

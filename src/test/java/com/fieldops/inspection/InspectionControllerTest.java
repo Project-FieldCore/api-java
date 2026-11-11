@@ -254,6 +254,46 @@ class InspectionControllerTest {
         .isEqualTo(reason);
     org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject("select canceled_at from inspection where id=?", java.sql.Timestamp.class, inspection))
         .isNotNull();
+    org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject(
+        "select count(*) from audit_event where entity_id=? and action='CANCELED' and actor_id=?",
+        Integer.class, inspection, supervisor)).isEqualTo(1);
+    org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject(
+        "select payload from audit_event where entity_id=? and action='CANCELED'", String.class, inspection))
+        .contains("\"to\":\"CANCELED\"").contains(reason);
+  }
+
+  @Test
+  void supervisorListsChronologicalInspectionAuditTrail() throws Exception {
+    UUID supervisor = insertUser("SUPERVISOR", "ACTIVE");
+    UUID technician = insertUser("TECHNICIAN", "ACTIVE");
+    UUID client = insertClient(); UUID site = insertSite(client); UUID version = insertPublishedVersion();
+    String scheduleBody = body(version, client, site, technician);
+
+    String created = mvc.perform(post("/api/v1/inspections").with(principal(supervisor, "SUPERVISOR"))
+            .contentType("application/json").content(scheduleBody))
+        .andExpect(status().isCreated())
+        .andExpect(jsonPath("$.status").value("ASSIGNED"))
+        .andReturn().getResponse().getContentAsString();
+    UUID inspection = UUID.fromString(new com.fasterxml.jackson.databind.ObjectMapper().readTree(created).path("id").asText());
+
+    mvc.perform(patch("/api/v1/inspections/{inspectionId}/cancel", inspection).with(principal(supervisor, "SUPERVISOR"))
+            .contentType("application/json").content("{\"reason\":\"Janela cancelada\",\"version\":0}"))
+        .andExpect(status().isOk());
+
+    mvc.perform(get("/api/v1/inspections/{inspectionId}/audit", inspection).with(principal(supervisor, "SUPERVISOR")))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.length()").value(2))
+        .andExpect(jsonPath("$[0].action").value("SCHEDULED"))
+        .andExpect(jsonPath("$[0].actorId").value(supervisor.toString()))
+        .andExpect(jsonPath("$[0].payload").value(org.hamcrest.Matchers.containsString("\"to\":\"ASSIGNED\"")))
+        .andExpect(jsonPath("$[0].createdAt").exists())
+        .andExpect(jsonPath("$[1].action").value("CANCELED"))
+        .andExpect(jsonPath("$[1].payload").value(org.hamcrest.Matchers.containsString("Janela cancelada")));
+
+    mvc.perform(get("/api/v1/inspections/{inspectionId}/audit", inspection).with(principal(technician, "TECHNICIAN")))
+        .andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value("ACCESS_DENIED"));
+    mvc.perform(get("/api/v1/inspections/{inspectionId}/audit", UUID.randomUUID()).with(principal(supervisor, "SUPERVISOR")))
+        .andExpect(status().isNotFound()).andExpect(jsonPath("$.code").value("INSPECTION_NOT_FOUND"));
   }
 
   @Test

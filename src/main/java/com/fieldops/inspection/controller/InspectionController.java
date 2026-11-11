@@ -98,11 +98,18 @@ public class InspectionController {
         .body(content.bytes());
   }
 
+  @GetMapping("/{inspectionId}/audit")
+  @PreAuthorize("hasAnyRole('ADMIN','SUPERVISOR')")
+  public List<com.fieldops.shared.audit.AuditService.AuditEventView> auditTrail(@PathVariable UUID inspectionId) {
+    return inspections.auditTrail(inspectionId);
+  }
+
   @PatchMapping("/{inspectionId}/assignee")
   @PreAuthorize("hasAnyRole('ADMIN','SUPERVISOR')")
   public InspectionSchedulingService.Inspection assign(
-      @PathVariable UUID inspectionId, @Valid @RequestBody AssignTechnicianRequest body) {
-    return inspections.assign(inspectionId, new InspectionSchedulingService.AssignmentCommand(body.technicianId(), body.version()));
+      @PathVariable UUID inspectionId, @Valid @RequestBody AssignTechnicianRequest body,
+      @AuthenticationPrincipal FieldOpsUserPrincipal principal) {
+    return inspections.assign(inspectionId, new InspectionSchedulingService.AssignmentCommand(body.technicianId(), body.version()), principal.userId());
   }
 
   @PostMapping("/{inspectionId}/review/start")
