@@ -304,7 +304,7 @@ public class InspectionExecutionService {
 
   private static final String SELECT = "select i.id,i.title,i.instructions,i.priority,i.status,i.scheduled_for,i.started_at_server,i.version,i.equipment_confirmed_at,c.name as client_name,s.name as site_name,e.name as equipment_name from inspection i join client c on c.id=i.client_id join inspection_site s on s.id=i.site_id left join equipment e on e.id=i.equipment_id";
 
-  public enum Status { ASSIGNED, IN_PROGRESS, SUBMITTED }
+  public enum Status { DRAFT, ASSIGNED, IN_PROGRESS, SUBMITTED, UNDER_REVIEW, APPROVED, REJECTED, CANCELED }
 
   public record AssignedInspection(UUID id, String clientName, String siteName, String equipmentName, String title, String instructions, InspectionSchedulingService.Priority priority, Status status, Instant scheduledFor, Instant startedAt, int version, Instant equipmentConfirmedAt) {}
   private record EquipmentMatch(UUID id, UUID siteId, String status) {}

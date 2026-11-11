@@ -440,6 +440,61 @@ class InspectionControllerTest {
   }
 
   @Test
+  void supervisorApprovesInspectionUnderReviewWithOptionalComment() throws Exception {
+    UUID supervisor = insertUser("SUPERVISOR", "ACTIVE");
+    UUID technician = insertUser("TECHNICIAN", "ACTIVE");
+    UUID client = insertClient(); UUID site = insertSite(client); UUID version = insertPublishedVersion();
+    UUID inspection = insertInspection(version, client, site, technician, supervisor, "UNDER_REVIEW", 2);
+    UUID item = insertSnapshot(inspection);
+
+    mvc.perform(post("/api/v1/inspections/{inspectionId}/review/approve", inspection).with(principal(supervisor, "SUPERVISOR"))
+            .contentType("application/json").content("{\"comentario\":\"Aprovado com ressalvas menores\"}"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.status").value("APPROVED"))
+        .andExpect(jsonPath("$.version").value(3));
+    org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject(
+        "select decision from inspection_review where inspection_id=?", String.class, inspection)).isEqualTo("APPROVED");
+    org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject(
+        "select reviewer_id from inspection_review where inspection_id=?", UUID.class, inspection)).isEqualTo(supervisor);
+    org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject(
+        "select comment from inspection_review where inspection_id=?", String.class, inspection)).isEqualTo("Aprovado com ressalvas menores");
+    org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject(
+        "select approved_at is not null from inspection where id=?", Boolean.class, inspection)).isTrue();
+    org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject(
+        "select count(*) from audit_event where entity_id=? and action='REVIEW_APPROVED' and actor_id=?",
+        Integer.class, inspection, supervisor)).isEqualTo(1);
+
+    mvc.perform(post("/api/v1/inspections/{inspectionId}/review/approve", inspection).with(principal(supervisor, "SUPERVISOR"))
+            .contentType("application/json").content("{}"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.status").value("APPROVED"))
+        .andExpect(jsonPath("$.version").value(3));
+    org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject(
+        "select count(*) from inspection_review where inspection_id=?", Integer.class, inspection)).isEqualTo(1);
+    org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject(
+        "select count(*) from audit_event where entity_id=? and action='REVIEW_APPROVED'", Integer.class, inspection)).isEqualTo(1);
+
+    mvc.perform(patch("/api/v1/inspections/{inspectionId}/cancel", inspection).with(principal(supervisor, "SUPERVISOR"))
+            .contentType("application/json").content("{\"reason\":\"tentativa\",\"version\":3}"))
+        .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("INSPECTION_CANNOT_BE_CANCELED"));
+    mvc.perform(put("/api/v1/inspections/my/{id}/items/{itemId}/observation", inspection, item)
+            .with(principal(technician, "TECHNICIAN")).contentType("application/json")
+            .content("{\"observation\":\"não deveria gravar\"}"))
+        .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("INSPECTION_NOT_IN_PROGRESS"));
+
+    mvc.perform(post("/api/v1/inspections/{inspectionId}/review/approve", inspection).with(principal(technician, "TECHNICIAN"))
+            .contentType("application/json").content("{}"))
+        .andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value("ACCESS_DENIED"));
+    UUID submitted = insertInspection(version, client, site, technician, supervisor, "SUBMITTED", 1);
+    mvc.perform(post("/api/v1/inspections/{inspectionId}/review/approve", submitted).with(principal(supervisor, "SUPERVISOR"))
+            .contentType("application/json").content("{}"))
+        .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("INSPECTION_NOT_REVIEWABLE"));
+    mvc.perform(post("/api/v1/inspections/{inspectionId}/review/approve", UUID.randomUUID()).with(principal(supervisor, "SUPERVISOR"))
+            .contentType("application/json").content("{}"))
+        .andExpect(status().isNotFound()).andExpect(jsonPath("$.code").value("INSPECTION_NOT_FOUND"));
+  }
+
+  @Test
   void supervisorListsOnlySubmittedInspectionsInReviewQueueWithFilters() throws Exception {
     UUID supervisor = insertUser("SUPERVISOR", "ACTIVE");
     UUID technician = insertUser("TECHNICIAN", "ACTIVE"); UUID otherTechnician = insertUser("TECHNICIAN", "ACTIVE");
