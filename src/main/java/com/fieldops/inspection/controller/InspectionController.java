@@ -121,6 +121,15 @@ public class InspectionController {
     return inspections.approveReview(inspectionId, principal.userId(), body == null ? null : body.comentario());
   }
 
+  @PostMapping("/{inspectionId}/review/reject")
+  @PreAuthorize("hasAnyRole('ADMIN','SUPERVISOR')")
+  public InspectionSchedulingService.Inspection rejectReview(
+      @PathVariable UUID inspectionId,
+      @Valid @RequestBody RejectReviewRequest body,
+      @AuthenticationPrincipal FieldOpsUserPrincipal principal) {
+    return inspections.rejectReview(inspectionId, principal.userId(), body.motivo());
+  }
+
   @PatchMapping("/{inspectionId}/cancel")
   @PreAuthorize("hasAnyRole('ADMIN','SUPERVISOR')")
   public InspectionSchedulingService.Inspection cancel(
@@ -216,6 +225,7 @@ public class InspectionController {
   public record AssignTechnicianRequest(@NotNull UUID technicianId, @NotNull @jakarta.validation.constraints.Min(0) Integer version) {}
   public record CancelInspectionRequest(@NotBlank @Size(max = 1000) String reason, @NotNull @Min(0) Integer version) {}
   public record ApproveReviewRequest(@Size(max = 2000) String comentario) {}
+  public record RejectReviewRequest(@NotBlank @Size(max = 2000) String motivo) {}
   public record ConfirmEquipmentRequest(@NotBlank @Size(max = 255) String qrCode) {}
   public record StartInspectionRequest(OffsetDateTime startedAtDevice, @DecimalMin("-90.0") @DecimalMax("90.0") BigDecimal latitude, @DecimalMin("-180.0") @DecimalMax("180.0") BigDecimal longitude) {}
   public record ObservationRequest(@Size(max = 2000) String observation) {}

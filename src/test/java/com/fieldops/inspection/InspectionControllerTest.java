@@ -495,6 +495,61 @@ class InspectionControllerTest {
   }
 
   @Test
+  void supervisorRejectsInspectionUnderReviewWithRequiredMotivo() throws Exception {
+    UUID supervisor = insertUser("SUPERVISOR", "ACTIVE");
+    UUID technician = insertUser("TECHNICIAN", "ACTIVE");
+    UUID client = insertClient(); UUID site = insertSite(client); UUID version = insertPublishedVersion();
+    UUID inspection = insertInspection(version, client, site, technician, supervisor, "UNDER_REVIEW", 2);
+
+    mvc.perform(post("/api/v1/inspections/{inspectionId}/review/reject", inspection).with(principal(supervisor, "SUPERVISOR"))
+            .contentType("application/json").content("{}"))
+        .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+    mvc.perform(post("/api/v1/inspections/{inspectionId}/review/reject", inspection).with(principal(supervisor, "SUPERVISOR"))
+            .contentType("application/json").content("{\"motivo\":\"   \"}"))
+        .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+
+    mvc.perform(post("/api/v1/inspections/{inspectionId}/review/reject", inspection).with(principal(supervisor, "SUPERVISOR"))
+            .contentType("application/json").content("{\"motivo\":\"Checklist incompleto no item de solda\"}"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.status").value("REJECTED"))
+        .andExpect(jsonPath("$.version").value(3));
+    org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject(
+        "select decision from inspection_review where inspection_id=?", String.class, inspection)).isEqualTo("REJECTED");
+    org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject(
+        "select reviewer_id from inspection_review where inspection_id=?", UUID.class, inspection)).isEqualTo(supervisor);
+    org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject(
+        "select comment from inspection_review where inspection_id=?", String.class, inspection))
+        .isEqualTo("Checklist incompleto no item de solda");
+    org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject(
+        "select count(*) from audit_event where entity_id=? and action='REVIEW_REJECTED' and actor_id=?",
+        Integer.class, inspection, supervisor)).isEqualTo(1);
+
+    mvc.perform(post("/api/v1/inspections/{inspectionId}/review/reject", inspection).with(principal(supervisor, "SUPERVISOR"))
+            .contentType("application/json").content("{\"motivo\":\"outro\"}"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.status").value("REJECTED"))
+        .andExpect(jsonPath("$.version").value(3));
+    org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject(
+        "select count(*) from inspection_review where inspection_id=?", Integer.class, inspection)).isEqualTo(1);
+    org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject(
+        "select count(*) from audit_event where entity_id=? and action='REVIEW_REJECTED'", Integer.class, inspection)).isEqualTo(1);
+    org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject(
+        "select comment from inspection_review where inspection_id=?", String.class, inspection))
+        .isEqualTo("Checklist incompleto no item de solda");
+
+    mvc.perform(post("/api/v1/inspections/{inspectionId}/review/reject", inspection).with(principal(technician, "TECHNICIAN"))
+            .contentType("application/json").content("{\"motivo\":\"x\"}"))
+        .andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value("ACCESS_DENIED"));
+    UUID submitted = insertInspection(version, client, site, technician, supervisor, "SUBMITTED", 1);
+    mvc.perform(post("/api/v1/inspections/{inspectionId}/review/reject", submitted).with(principal(supervisor, "SUPERVISOR"))
+            .contentType("application/json").content("{\"motivo\":\"cedo\"}"))
+        .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("INSPECTION_NOT_REVIEWABLE"));
+    mvc.perform(post("/api/v1/inspections/{inspectionId}/review/reject", UUID.randomUUID()).with(principal(supervisor, "SUPERVISOR"))
+            .contentType("application/json").content("{\"motivo\":\"x\"}"))
+        .andExpect(status().isNotFound()).andExpect(jsonPath("$.code").value("INSPECTION_NOT_FOUND"));
+  }
+
+  @Test
   void supervisorListsOnlySubmittedInspectionsInReviewQueueWithFilters() throws Exception {
     UUID supervisor = insertUser("SUPERVISOR", "ACTIVE");
     UUID technician = insertUser("TECHNICIAN", "ACTIVE"); UUID otherTechnician = insertUser("TECHNICIAN", "ACTIVE");

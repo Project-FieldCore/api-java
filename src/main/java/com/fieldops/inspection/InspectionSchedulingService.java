@@ -122,6 +122,46 @@ public class InspectionSchedulingService {
     return get(inspectionId);
   }
 
+  /**
+   * AC-REVIEW / RN-080: reprova inspeção em revisão (UNDER_REVIEW → REJECTED) com motivo obrigatório.
+   * Grava {@code inspection_review} (REJECTED, comment=motivo) e {@code audit_event} REVIEW_REJECTED.
+   * Já REJECTED: retorna a inspeção atual sem novo review/audit (idempotente).
+   * Persistência para PBI-0062 sync: {@code inspection.status=REJECTED}, {@code inspection_review}
+   * (reviewer_id, decision, comment, created_at) e audit_event.
+   */
+  @Transactional
+  public Inspection rejectReview(UUID inspectionId, UUID reviewerId, String motivo) {
+    Inspection current = get(inspectionId);
+    if (current.status() == Status.REJECTED) {
+      return current;
+    }
+    if (current.status() != Status.UNDER_REVIEW) {
+      throw new ApiException(HttpStatus.CONFLICT, "INSPECTION_NOT_REVIEWABLE",
+          "Only an inspection under review can be rejected");
+    }
+    String reason = blankToNull(motivo);
+    if (reason == null) {
+      throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "motivo is required");
+    }
+    int updated = jdbc.update(
+        "update inspection set status='REJECTED',updated_at=current_timestamp,version=version+1 where id=? and status='UNDER_REVIEW'",
+        inspectionId);
+    if (updated == 0) {
+      Inspection raced = get(inspectionId);
+      if (raced.status() == Status.REJECTED) return raced;
+      throw new ApiException(HttpStatus.CONFLICT, "INSPECTION_NOT_REVIEWABLE",
+          "Only an inspection under review can be rejected");
+    }
+    jdbc.update(
+        "insert into inspection_review (id,inspection_id,reviewer_id,decision,comment) values (?,?,?,?,?)",
+        UUID.randomUUID(), inspectionId, reviewerId, "REJECTED", reason);
+    jdbc.update(
+        "insert into audit_event (id,actor_id,entity_type,entity_id,action,payload) values (?,?,?,?,?,?)",
+        UUID.randomUUID(), reviewerId, "INSPECTION", inspectionId, "REVIEW_REJECTED",
+        "{\"from\":\"UNDER_REVIEW\",\"to\":\"REJECTED\"}");
+    return get(inspectionId);
+  }
+
   private static String blankToNull(String value) {
     return value == null || value.isBlank() ? null : value.trim();
   }
