@@ -87,6 +87,45 @@ public class InspectionSchedulingService {
     return get(inspectionId);
   }
 
+  /**
+   * AC-REVIEW / RN-030: aprova inspeção em revisão (UNDER_REVIEW → APPROVED).
+   * Grava {@code inspection_review} (APPROVED) e {@code audit_event} REVIEW_APPROVED.
+   * Já APPROVED: retorna a inspeção atual sem novo review/audit (idempotente).
+   */
+  @Transactional
+  public Inspection approveReview(UUID inspectionId, UUID reviewerId, String comment) {
+    Inspection current = get(inspectionId);
+    if (current.status() == Status.APPROVED) {
+      return current;
+    }
+    if (current.status() != Status.UNDER_REVIEW) {
+      throw new ApiException(HttpStatus.CONFLICT, "INSPECTION_NOT_REVIEWABLE",
+          "Only an inspection under review can be approved");
+    }
+    String normalizedComment = blankToNull(comment);
+    int updated = jdbc.update(
+        "update inspection set status='APPROVED',approved_at=current_timestamp,updated_at=current_timestamp,version=version+1 where id=? and status='UNDER_REVIEW'",
+        inspectionId);
+    if (updated == 0) {
+      Inspection raced = get(inspectionId);
+      if (raced.status() == Status.APPROVED) return raced;
+      throw new ApiException(HttpStatus.CONFLICT, "INSPECTION_NOT_REVIEWABLE",
+          "Only an inspection under review can be approved");
+    }
+    jdbc.update(
+        "insert into inspection_review (id,inspection_id,reviewer_id,decision,comment) values (?,?,?,?,?)",
+        UUID.randomUUID(), inspectionId, reviewerId, "APPROVED", normalizedComment);
+    jdbc.update(
+        "insert into audit_event (id,actor_id,entity_type,entity_id,action,payload) values (?,?,?,?,?,?)",
+        UUID.randomUUID(), reviewerId, "INSPECTION", inspectionId, "REVIEW_APPROVED",
+        "{\"from\":\"UNDER_REVIEW\",\"to\":\"APPROVED\"}");
+    return get(inspectionId);
+  }
+
+  private static String blankToNull(String value) {
+    return value == null || value.isBlank() ? null : value.trim();
+  }
+
   /** RN-029/030: registra a trilha de cancelamento e nunca cancela uma inspeção aprovada. */
   @Transactional
   public Inspection cancel(UUID inspectionId, CancellationCommand command, UUID canceledBy) {
