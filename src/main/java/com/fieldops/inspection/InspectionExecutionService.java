@@ -33,7 +33,7 @@ public class InspectionExecutionService {
   }
 
   public List<AssignedInspection> assignedTo(UUID technicianId) {
-    return jdbc.query(SELECT + " where i.technician_id=? and i.status in ('ASSIGNED','IN_PROGRESS') order by i.scheduled_for,i.id",
+    return jdbc.query(SELECT + " where i.technician_id=? and i.status in ('ASSIGNED','IN_PROGRESS','REJECTED') order by i.scheduled_for,i.id",
         (rs, row) -> mapAssigned(rs), technicianId);
   }
 
@@ -299,14 +299,35 @@ public class InspectionExecutionService {
   private static AssignedInspection mapAssigned(java.sql.ResultSet rs) throws java.sql.SQLException {
     Timestamp started = rs.getTimestamp("started_at_server");
     Timestamp confirmed = rs.getTimestamp("equipment_confirmed_at");
-    return new AssignedInspection(UUID.fromString(rs.getString("id")), rs.getString("client_name"), rs.getString("site_name"), rs.getString("equipment_name"), rs.getString("title"), rs.getString("instructions"), InspectionSchedulingService.Priority.valueOf(rs.getString("priority")), Status.valueOf(rs.getString("status")), rs.getTimestamp("scheduled_for").toInstant(), started == null ? null : started.toInstant(), rs.getInt("version"), confirmed == null ? null : confirmed.toInstant());
+    Timestamp reviewedAt = rs.getTimestamp("reviewed_at");
+    String decision = rs.getString("review_decision");
+    InspectionReviewInfo review = decision == null ? null : new InspectionReviewInfo(
+        decision,
+        rs.getString("review_motivo"),
+        UUID.fromString(rs.getString("reviewer_id")),
+        rs.getString("reviewer_name"),
+        reviewedAt == null ? null : reviewedAt.toInstant());
+    return new AssignedInspection(
+        UUID.fromString(rs.getString("id")), rs.getString("client_name"), rs.getString("site_name"), rs.getString("equipment_name"),
+        rs.getString("title"), rs.getString("instructions"), InspectionSchedulingService.Priority.valueOf(rs.getString("priority")),
+        Status.valueOf(rs.getString("status")), rs.getTimestamp("scheduled_for").toInstant(),
+        started == null ? null : started.toInstant(), rs.getInt("version"),
+        confirmed == null ? null : confirmed.toInstant(), review);
   }
 
-  private static final String SELECT = "select i.id,i.title,i.instructions,i.priority,i.status,i.scheduled_for,i.started_at_server,i.version,i.equipment_confirmed_at,c.name as client_name,s.name as site_name,e.name as equipment_name from inspection i join client c on c.id=i.client_id join inspection_site s on s.id=i.site_id left join equipment e on e.id=i.equipment_id";
+  private static final String SELECT = "select i.id,i.title,i.instructions,i.priority,i.status,i.scheduled_for,i.started_at_server,i.version,i.equipment_confirmed_at,"
+      + "c.name as client_name,s.name as site_name,e.name as equipment_name,"
+      + "ir.decision as review_decision,ir.comment as review_motivo,ir.reviewer_id,ir.created_at as reviewed_at,ru.name as reviewer_name "
+      + "from inspection i join client c on c.id=i.client_id join inspection_site s on s.id=i.site_id "
+      + "left join equipment e on e.id=i.equipment_id "
+      + "left join inspection_review ir on ir.inspection_id=i.id "
+      + "left join app_user ru on ru.id=ir.reviewer_id";
 
   public enum Status { DRAFT, ASSIGNED, IN_PROGRESS, SUBMITTED, UNDER_REVIEW, APPROVED, REJECTED, CANCELED }
 
-  public record AssignedInspection(UUID id, String clientName, String siteName, String equipmentName, String title, String instructions, InspectionSchedulingService.Priority priority, Status status, Instant scheduledFor, Instant startedAt, int version, Instant equipmentConfirmedAt) {}
+  public record AssignedInspection(UUID id, String clientName, String siteName, String equipmentName, String title, String instructions, InspectionSchedulingService.Priority priority, Status status, Instant scheduledFor, Instant startedAt, int version, Instant equipmentConfirmedAt, InspectionReviewInfo review) {}
+  /** Present when a formal review decision exists. For REJECTED, {@code motivo} carries the supervisor reason. */
+  public record InspectionReviewInfo(String decision, String motivo, UUID reviewerId, String reviewerName, Instant reviewedAt) {}
   private record EquipmentMatch(UUID id, UUID siteId, String status) {}
   private record InspectionLink(UUID siteId, UUID equipmentId) {}
   public record ChecklistSection(String title, int order, List<ChecklistItem> items) {}

@@ -403,6 +403,33 @@ class InspectionControllerTest {
   }
 
   @Test
+  void technicianSeesRejectedInspectionWithMotivoOnMyDetailAndList() throws Exception {
+    UUID supervisor = insertUser("SUPERVISOR", "ACTIVE");
+    UUID technician = insertUser("TECHNICIAN", "ACTIVE");
+    UUID other = insertUser("TECHNICIAN", "ACTIVE");
+    UUID client = insertClient(); UUID site = insertSite(client); UUID version = insertPublishedVersion();
+    UUID inspection = insertInspection(version, client, site, technician, supervisor, "REJECTED", 3);
+    jdbc.update(
+        "insert into inspection_review (id,inspection_id,reviewer_id,decision,comment) values (?,?,?,?,?)",
+        UUID.randomUUID(), inspection, supervisor, "REJECTED", "Corrigir NC e reenviar evidências");
+
+    mvc.perform(get("/api/v1/inspections/my/{id}", inspection).with(principal(technician, "TECHNICIAN")))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.status").value("REJECTED"))
+        .andExpect(jsonPath("$.review.decision").value("REJECTED"))
+        .andExpect(jsonPath("$.review.motivo").value("Corrigir NC e reenviar evidências"))
+        .andExpect(jsonPath("$.review.reviewerId").value(supervisor.toString()))
+        .andExpect(jsonPath("$.review.reviewerName").value("SUPERVISOR"))
+        .andExpect(jsonPath("$.review.reviewedAt").exists());
+    mvc.perform(get("/api/v1/inspections/my").with(principal(technician, "TECHNICIAN")))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$[0].id").value(inspection.toString()))
+        .andExpect(jsonPath("$[0].review.motivo").value("Corrigir NC e reenviar evidências"));
+    mvc.perform(get("/api/v1/inspections/my/{id}", inspection).with(principal(other, "TECHNICIAN")))
+        .andExpect(status().isNotFound()).andExpect(jsonPath("$.code").value("INSPECTION_NOT_FOUND"));
+  }
+
+  @Test
   void supervisorStartsFormalReviewAndWritesAudit() throws Exception {
     UUID supervisor = insertUser("SUPERVISOR", "ACTIVE");
     UUID technician = insertUser("TECHNICIAN", "ACTIVE");

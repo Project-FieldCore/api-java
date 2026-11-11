@@ -71,6 +71,9 @@ class OpenApiContractTest {
     assertTrue(contract.contains("X-Operation-Id"));
     assertTrue(contract.contains("X-Client-Mutation-Id"));
     assertTrue(contract.contains("AssignedInspection:"));
+    assertTrue(contract.contains("InspectionReviewInfo:"));
+    assertTrue(contract.contains("MobileSyncInspectionPayload:"));
+    assertTrue(contract.contains("review: {$ref: '#/components/schemas/InspectionReviewInfo'}"));
     assertTrue(contract.contains("scheduledFrom"));
     assertTrue(contract.contains("ErrorResponse:"));
     assertTrue(contract.contains("fieldErrors:"));

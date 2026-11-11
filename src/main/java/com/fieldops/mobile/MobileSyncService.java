@@ -63,6 +63,7 @@ public class MobileSyncService {
     boolean hasMore = candidates.size() > PULL_PAGE_SIZE;
     List<ChangeCandidate> page = hasMore ? candidates.subList(0, PULL_PAGE_SIZE) : candidates;
     attachInspectionItems(page);
+    attachInspectionReviews(page);
 
     String nextCursor;
     if (page.isEmpty()) {
@@ -383,7 +384,8 @@ public class MobileSyncService {
               rs.getBigDecimal("completed_longitude"),
               rs.getInt("version"),
               updatedAt,
-              List.of());
+              List.of(),
+              null);
           return new ChangeCandidate("INSPECTION", id, "UPSERT", updatedAt, id, payload);
         },
         technicianId, Timestamp.from(cursor.afterAt()), Timestamp.from(cursor.afterAt()), cursor.afterId(), PULL_PAGE_SIZE + 1);
@@ -494,7 +496,55 @@ public class MobileSyncService {
               payload.status(), payload.scheduledFor(), payload.startedAtDevice(), payload.startedAtServer(),
               payload.completedAtDevice(), payload.submittedAtServer(), payload.canceledAt(), payload.canceledReason(),
               payload.equipmentConfirmedAt(), payload.startedLatitude(), payload.startedLongitude(),
-              payload.completedLatitude(), payload.completedLongitude(), payload.version(), payload.updatedAt(), items)));
+              payload.completedLatitude(), payload.completedLongitude(), payload.version(), payload.updatedAt(), items,
+              payload.review())));
+    }
+  }
+
+  /** Attaches inspection_review for REJECTED (required) and APPROVED (symmetry) UPSERTs on the page. */
+  private void attachInspectionReviews(List<ChangeCandidate> page) {
+    List<UUID> inspectionIds = page.stream()
+        .filter(c -> "INSPECTION".equals(c.entityType()) && "UPSERT".equals(c.operation()))
+        .map(ChangeCandidate::entityId)
+        .distinct()
+        .toList();
+    if (inspectionIds.isEmpty()) return;
+
+    Map<UUID, InspectionReviewPullPayload> reviews = new HashMap<>();
+    String placeholders = String.join(",", inspectionIds.stream().map(id -> "?").toList());
+    jdbc.query(
+        "select ir.inspection_id, ir.decision, ir.comment, ir.reviewer_id, ir.created_at, u.name as reviewer_name "
+            + "from inspection_review ir join app_user u on u.id = ir.reviewer_id "
+            + "where ir.inspection_id in (" + placeholders + ")",
+        (rs, row) -> {
+          UUID inspectionId = UUID.fromString(rs.getString("inspection_id"));
+          reviews.put(inspectionId, new InspectionReviewPullPayload(
+              rs.getString("decision"),
+              rs.getString("comment"),
+              UUID.fromString(rs.getString("reviewer_id")),
+              rs.getString("reviewer_name"),
+              rs.getTimestamp("created_at").toInstant()));
+          return null;
+        },
+        inspectionIds.toArray());
+
+    for (int i = 0; i < page.size(); i++) {
+      ChangeCandidate candidate = page.get(i);
+      if (!("INSPECTION".equals(candidate.entityType()) && "UPSERT".equals(candidate.operation()))) continue;
+      InspectionPullPayload payload = (InspectionPullPayload) candidate.payload();
+      InspectionReviewPullPayload review = reviews.get(payload.id());
+      if (review == null) continue;
+      page.set(i, new ChangeCandidate(
+          candidate.entityType(), candidate.entityId(), candidate.operation(), candidate.updatedAt(),
+          candidate.streamKey(),
+          new InspectionPullPayload(
+              payload.id(), payload.clientId(), payload.siteId(), payload.equipmentId(), payload.templateVersionId(),
+              payload.technicianId(), payload.supervisorId(), payload.title(), payload.instructions(), payload.priority(),
+              payload.status(), payload.scheduledFor(), payload.startedAtDevice(), payload.startedAtServer(),
+              payload.completedAtDevice(), payload.submittedAtServer(), payload.canceledAt(), payload.canceledReason(),
+              payload.equipmentConfirmedAt(), payload.startedLatitude(), payload.startedLongitude(),
+              payload.completedLatitude(), payload.completedLongitude(), payload.version(), payload.updatedAt(),
+              payload.items(), review)));
     }
   }
 
@@ -537,10 +587,14 @@ public class MobileSyncService {
       String title, String instructions, String priority, String status, Instant scheduledFor, Instant startedAtDevice,
       Instant startedAtServer, Instant completedAtDevice, Instant submittedAtServer, Instant canceledAt, String canceledReason,
       Instant equipmentConfirmedAt, BigDecimal startedLatitude, BigDecimal startedLongitude, BigDecimal completedLatitude,
-      BigDecimal completedLongitude, int version, Instant updatedAt, List<InspectionItemPullPayload> items) {}
+      BigDecimal completedLongitude, int version, Instant updatedAt, List<InspectionItemPullPayload> items,
+      InspectionReviewPullPayload review) {}
   public record InspectionItemPullPayload(
       UUID id, String sectionTitle, String sectionDescription, int sectionOrder, String itemCode, String itemTitle,
       String itemDescription, String responseType, boolean required, String rulesJson, String optionsJson, int itemOrder) {}
+  /** Review decision for the technician. {@code motivo} is required semantically when decision=REJECTED. */
+  public record InspectionReviewPullPayload(
+      String decision, String motivo, UUID reviewerId, String reviewerName, Instant reviewedAt) {}
   public record ResponsePullPayload(
       UUID id, UUID inspectionId, UUID inspectionItemId, String valueText, BigDecimal valueNumber, Boolean valueBoolean,
       LocalDate valueDate, String valueJson, String observation, String conformity, Instant answeredAtDevice,
