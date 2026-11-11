@@ -1,5 +1,6 @@
 package com.fieldops.inspection;
 
+import com.fieldops.shared.audit.AuditService;
 import com.fieldops.shared.error.ApiException;
 import java.math.BigDecimal;
 import java.nio.file.Path;
@@ -26,10 +27,12 @@ public class InspectionExecutionService {
   private static final int MAX_EVIDENCE_BYTES = 5 * 1024 * 1024;
   private final JdbcTemplate jdbc;
   private final EvidenceFileStore files;
+  private final AuditService audit;
 
-  public InspectionExecutionService(JdbcTemplate jdbc, EvidenceFileStore files) {
+  public InspectionExecutionService(JdbcTemplate jdbc, EvidenceFileStore files, AuditService audit) {
     this.jdbc = jdbc;
     this.files = files;
+    this.audit = audit;
   }
 
   public List<AssignedInspection> assignedTo(UUID technicianId) {
@@ -124,6 +127,7 @@ public class InspectionExecutionService {
     Timestamp device = startedAtDevice == null ? null : Timestamp.from(startedAtDevice.toInstant());
     jdbc.update("update inspection set status='IN_PROGRESS',started_at_server=current_timestamp,started_at_device=?,started_latitude=?,started_longitude=?,updated_at=current_timestamp,version=version+1 where id=? and technician_id=? and status='ASSIGNED'",
         device, latitude, longitude, inspectionId, technicianId);
+    audit.recordInspection(technicianId, inspectionId, "STARTED", Status.ASSIGNED.name(), Status.IN_PROGRESS.name());
     return detail(inspectionId, technicianId);
   }
 
@@ -216,6 +220,7 @@ public class InspectionExecutionService {
     int updated = jdbc.update("update inspection set status='SUBMITTED',completed_at_device=?,completed_latitude=?,completed_longitude=?,submitted_at_server=current_timestamp,updated_at=current_timestamp,version=version+1 where id=? and version=? and status='IN_PROGRESS'",
         device, command.latitude(), command.longitude(), inspectionId, command.version());
     if (updated == 0) throw new ApiException(HttpStatus.CONFLICT, "VERSION_CONFLICT", "Inspection was modified by another request");
+    audit.recordInspection(technicianId, inspectionId, "SUBMITTED", Status.IN_PROGRESS.name(), Status.SUBMITTED.name());
     return detail(inspectionId, technicianId);
   }
 
