@@ -208,6 +208,35 @@ class MobileSyncPullControllerTest {
   }
 
   @Test
+  void rejectedInspectionPullIncludesMotivoReviewBlock() throws Exception {
+    UUID technician = insertUser("TECHNICIAN");
+    UUID other = insertUser("TECHNICIAN");
+    UUID supervisor = insertUser("SUPERVISOR");
+    Instant at = Instant.parse("2026-08-01T16:00:00.000Z");
+    UUID inspection = insertAssignedInspection(technician, at);
+    insertSnapshot(inspection, 0);
+    jdbc.update("update inspection set status='REJECTED',version=3,updated_at=? where id=?", Timestamp.from(at), inspection);
+    jdbc.update(
+        "insert into inspection_review (id,inspection_id,reviewer_id,decision,comment,created_at) values (?,?,?,?,?,?)",
+        UUID.randomUUID(), inspection, supervisor, "REJECTED", "Refazer item de solda com foto", Timestamp.from(at));
+
+    mvc.perform(get("/api/v1/mobile/sync/pull").with(technician(technician)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.changes.length()").value(1))
+        .andExpect(jsonPath("$.changes[0].entityId").value(inspection.toString()))
+        .andExpect(jsonPath("$.changes[0].payload.status").value("REJECTED"))
+        .andExpect(jsonPath("$.changes[0].payload.review.decision").value("REJECTED"))
+        .andExpect(jsonPath("$.changes[0].payload.review.motivo").value("Refazer item de solda com foto"))
+        .andExpect(jsonPath("$.changes[0].payload.review.reviewerId").value(supervisor.toString()))
+        .andExpect(jsonPath("$.changes[0].payload.review.reviewerName").value("SUPERVISOR"))
+        .andExpect(jsonPath("$.changes[0].payload.review.reviewedAt").exists());
+
+    mvc.perform(get("/api/v1/mobile/sync/pull").with(technician(other)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.changes").isEmpty());
+  }
+
+  @Test
   void malformedCursorReturnsValidationError() throws Exception {
     UUID technician = insertUser("TECHNICIAN");
     mvc.perform(get("/api/v1/mobile/sync/pull").param("cursor", "not-a-cursor").with(technician(technician)))
