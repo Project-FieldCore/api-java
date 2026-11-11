@@ -16,6 +16,7 @@ import java.util.UUID;
 import org.hamcrest.Matchers;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -67,6 +68,7 @@ class MobileSyncPullControllerTest {
   }
 
   @Test
+  @Tag("critical")
   void bootstrapReturnsAssignedInspectionWithItems() throws Exception {
     UUID technician = insertUser("TECHNICIAN");
     UUID inspection = insertAssignedInspection(technician, Instant.parse("2026-08-01T10:00:00.000Z"));
