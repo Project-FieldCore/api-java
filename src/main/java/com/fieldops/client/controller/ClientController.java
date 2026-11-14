@@ -1,6 +1,7 @@
 package com.fieldops.client.controller;
 
 import com.fieldops.client.ClientService;
+import com.fieldops.shared.export.CsvExporter;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.Max;
@@ -10,6 +11,7 @@ import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 import java.net.URI;
 import java.util.UUID;
+import java.util.List;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -37,6 +39,14 @@ public class ClientController {
                                  @RequestParam(required = false) String q,
                                  @RequestParam(required = false) ClientService.Status status) {
     return clients.list(page, size, sort, q, status);
+  }
+
+  @GetMapping(value = "/export.csv", produces = "text/csv")
+  public ResponseEntity<byte[]> export(@RequestParam(defaultValue = "name,asc") String sort, @RequestParam(required = false) String q,
+                                       @RequestParam(required = false) ClientService.Status status) {
+    List<? extends List<?>> rows = clients.list(0, 10000, sort, q, status).items().stream()
+        .map(client -> java.util.Arrays.asList(client.id(), client.name(), client.legalName(), client.document(), client.email(), client.phone(), client.status(), client.createdAt())).toList();
+    return CsvExporter.download("clients.csv", List.of("id", "name", "legalName", "document", "email", "phone", "status", "createdAt"), rows);
   }
 
   @GetMapping("/{clientId}")

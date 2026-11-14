@@ -1,6 +1,7 @@
 package com.fieldops.site.controller;
 
 import com.fieldops.site.SiteService;
+import com.fieldops.shared.export.CsvExporter;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.DecimalMax;
 import jakarta.validation.constraints.DecimalMin;
@@ -48,6 +49,14 @@ public class SiteController {
       @RequestParam(defaultValue = "name,asc") String sort, @RequestParam(required = false) String q,
       @RequestParam(required = false) SiteService.Status status, @RequestParam(required = false) UUID clientId) {
     return sites.list(page, size, sort, q, status, clientId);
+  }
+
+  @GetMapping(value = "/sites/export.csv", produces = "text/csv")
+  public ResponseEntity<byte[]> export(@RequestParam(defaultValue = "name,asc") String sort, @RequestParam(required = false) String q,
+                                       @RequestParam(required = false) SiteService.Status status, @RequestParam(required = false) UUID clientId) {
+    List<? extends List<?>> rows = sites.list(0, 10000, sort, q, status, clientId).items().stream()
+        .map(site -> java.util.Arrays.asList(site.id(), site.clientId(), site.name(), site.city(), site.state(), site.addressLine(), site.status(), site.createdAt())).toList();
+    return CsvExporter.download("sites.csv", List.of("id", "clientId", "name", "city", "state", "addressLine", "status", "createdAt"), rows);
   }
 
   @GetMapping("/sites/{siteId}")
