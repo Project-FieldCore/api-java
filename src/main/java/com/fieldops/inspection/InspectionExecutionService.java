@@ -82,6 +82,36 @@ public class InspectionExecutionService {
         }, inspectionId);
   }
 
+  @Transactional
+  public ItemReviewComment addReviewComment(UUID inspectionId, UUID itemId, UUID reviewerId, String comment) {
+    requireExists(inspectionId);
+    String status = jdbc.queryForObject("select status from inspection where id=?", String.class, inspectionId);
+    if (!"UNDER_REVIEW".equals(status)) {
+      throw new ApiException(HttpStatus.CONFLICT, "INSPECTION_NOT_UNDER_REVIEW", "Item comments can be added only while the inspection is under review");
+    }
+    requireItem(inspectionId, itemId);
+    UUID id = UUID.randomUUID();
+    String normalized = comment.trim();
+    jdbc.update("insert into inspection_item_review_comment (id,inspection_id,inspection_item_id,reviewer_id,comment) values (?,?,?,?,?)",
+        id, inspectionId, itemId, reviewerId, normalized);
+    audit.recordInspection(reviewerId, inspectionId, "ITEM_REVIEW_COMMENTED", java.util.Map.of("itemId", itemId.toString()));
+    return reviewComments(inspectionId).stream().filter(entry -> entry.id().equals(id)).findFirst().orElseThrow();
+  }
+
+  public List<ItemReviewComment> reviewComments(UUID inspectionId) {
+    requireExists(inspectionId);
+    return jdbc.query("""
+        select c.id,c.inspection_item_id,c.comment,c.reviewer_id,u.name reviewer_name,c.created_at,s.section_title,s.item_title
+        from inspection_item_review_comment c
+        join inspection_item_snapshot s on s.id=c.inspection_item_id
+        join app_user u on u.id=c.reviewer_id
+        where c.inspection_id=? order by c.created_at,c.id
+        """, (rs, row) -> new ItemReviewComment(UUID.fromString(rs.getString("id")),
+            UUID.fromString(rs.getString("inspection_item_id")), rs.getString("section_title"), rs.getString("item_title"),
+            rs.getString("comment"), UUID.fromString(rs.getString("reviewer_id")), rs.getString("reviewer_name"),
+            rs.getTimestamp("created_at").toInstant()), inspectionId);
+  }
+
   private List<ChecklistSection> loadChecklist(UUID inspectionId) {
     List<ChecklistItem> items = jdbc.query(
         "select s.id,s.section_title,s.section_order,s.item_title,s.item_description,s.response_type,s.required,s.rules_json,s.options_json,s.item_order,"
@@ -431,6 +461,8 @@ public class InspectionExecutionService {
           && java.util.Objects.equals(conformity, other.conformity) && java.util.Objects.equals(observation, other.observation);
     }
   }
+  public record ItemReviewComment(UUID id, UUID inspectionItemId, String sectionTitle, String itemTitle, String comment,
+                                  UUID reviewerId, String reviewerName, Instant createdAt) {}
   public record CompleteCommand(int version, OffsetDateTime completedAtDevice, BigDecimal latitude, BigDecimal longitude, List<AnswerInput> answers, SignatureInput signature) {}
   public record SignatureInput(String contentType, String dataBase64) {}
   public record EvidenceFile(UUID id, UUID inspectionResponseId, UUID inspectionItemId, String fileName, String contentType, long sizeBytes, Instant createdAt) {}
