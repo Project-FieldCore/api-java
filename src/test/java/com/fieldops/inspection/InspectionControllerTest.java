@@ -723,6 +723,33 @@ class InspectionControllerTest {
   }
 
   @Test
+  void supervisorReadsImmutableResponseHistory() throws Exception {
+    UUID technician = insertUser("TECHNICIAN", "ACTIVE");
+    UUID supervisor = insertUser("SUPERVISOR", "ACTIVE");
+    UUID client = insertClient(); UUID site = insertSite(client); UUID version = insertPublishedVersion();
+    UUID inspection = insertInspection(version, client, site, technician, supervisor, "IN_PROGRESS", 1);
+    UUID item = insertSnapshot(inspection);
+
+    mvc.perform(put("/api/v1/inspections/my/{inspectionId}/items/{itemId}/observation", inspection, item)
+            .with(principal(technician, "TECHNICIAN")).contentType("application/json").content("{\"observation\":\"Primeira leitura\"}"))
+        .andExpect(status().isOk());
+    mvc.perform(put("/api/v1/inspections/my/{inspectionId}/items/{itemId}/observation", inspection, item)
+            .with(principal(technician, "TECHNICIAN")).contentType("application/json").content("{\"observation\":\"Leitura corrigida\"}"))
+        .andExpect(status().isOk());
+
+    mvc.perform(get("/api/v1/inspections/{inspectionId}/response-history", inspection).with(principal(supervisor, "SUPERVISOR")))
+        .andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(2))
+        .andExpect(jsonPath("$[0].action").value("CREATED")).andExpect(jsonPath("$[0].previous").doesNotExist())
+        .andExpect(jsonPath("$[0].current.observation").value("Primeira leitura"))
+        .andExpect(jsonPath("$[1].action").value("UPDATED"))
+        .andExpect(jsonPath("$[1].previous.observation").value("Primeira leitura"))
+        .andExpect(jsonPath("$[1].current.observation").value("Leitura corrigida"))
+        .andExpect(jsonPath("$[1].changedBy").value(technician.toString()));
+    mvc.perform(get("/api/v1/inspections/{inspectionId}/response-history", inspection).with(principal(technician, "TECHNICIAN")))
+        .andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value("ACCESS_DENIED"));
+  }
+
+  @Test
   void supervisorDownloadsPdfOnlyForApprovedInspection() throws Exception {
     UUID supervisor = insertUser("SUPERVISOR", "ACTIVE");
     UUID technician = insertUser("TECHNICIAN", "ACTIVE");

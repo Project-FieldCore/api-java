@@ -60,6 +60,28 @@ public class InspectionExecutionService {
     return loadChecklist(inspectionId);
   }
 
+  /** Immutable answer revisions, exposed through the supervisor review endpoint. */
+  public List<ResponseHistoryEntry> responseHistoryForReview(UUID inspectionId) {
+    requireExists(inspectionId);
+    return jdbc.query("""
+        select h.id,h.inspection_response_id,h.inspection_item_id,h.action,h.previous_value_text,h.previous_value_number,
+               h.previous_value_boolean,h.previous_value_date,h.previous_conformity,h.previous_observation,h.value_text,
+               h.value_number,h.value_boolean,h.value_date,h.conformity,h.observation,h.changed_by,u.name changed_by_name,
+               h.response_version,h.changed_at,s.section_title,s.item_title
+        from inspection_response_history h join inspection_item_snapshot s on s.id=h.inspection_item_id
+        join app_user u on u.id=h.changed_by
+        where h.inspection_id=? order by h.changed_at,h.id
+        """, (rs, row) -> {
+          String action = rs.getString("action");
+          return new ResponseHistoryEntry(
+              UUID.fromString(rs.getString("id")), UUID.fromString(rs.getString("inspection_response_id")),
+              UUID.fromString(rs.getString("inspection_item_id")), rs.getString("section_title"), rs.getString("item_title"),
+              action, "CREATED".equals(action) ? null : historyValues(rs, "previous_"), historyValues(rs, ""),
+              UUID.fromString(rs.getString("changed_by")), rs.getString("changed_by_name"), rs.getInt("response_version"),
+              rs.getTimestamp("changed_at").toInstant());
+        }, inspectionId);
+  }
+
   private List<ChecklistSection> loadChecklist(UUID inspectionId) {
     List<ChecklistItem> items = jdbc.query(
         "select s.id,s.section_title,s.section_order,s.item_title,s.item_description,s.response_type,s.required,s.rules_json,s.options_json,s.item_order,"
@@ -310,14 +332,43 @@ public class InspectionExecutionService {
   }
 
   private void upsert(UUID inspectionId, UUID itemId, UUID technicianId, String observation, String valueText, BigDecimal valueNumber, Boolean valueBoolean, LocalDate valueDate, String conformity) {
-    List<UUID> existing = jdbc.query("select id from inspection_response where inspection_item_id=?", (rs, row) -> UUID.fromString(rs.getString("id")), itemId);
+    List<ResponseValues> existing = jdbc.query("select id,value_text,value_number,value_boolean,value_date,conformity,observation,version from inspection_response where inspection_item_id=?", (rs, row) -> responseValues(rs), itemId);
     if (existing.isEmpty()) {
+      UUID responseId = UUID.randomUUID();
       jdbc.update("insert into inspection_response (id,inspection_id,inspection_item_id,value_text,value_number,value_boolean,value_date,observation,conformity,answered_by,server_received_at) values (?,?,?,?,?,?,?,?,?,?,current_timestamp)",
-          UUID.randomUUID(), inspectionId, itemId, blankToNull(valueText), valueNumber, valueBoolean, valueDate == null ? null : Date.valueOf(valueDate), blankToNull(observation), conformity, technicianId);
+          responseId, inspectionId, itemId, blankToNull(valueText), valueNumber, valueBoolean, valueDate == null ? null : Date.valueOf(valueDate), blankToNull(observation), conformity, technicianId);
+      recordResponseHistory(inspectionId, responseId, itemId, "CREATED", null, loadResponseValues(responseId), technicianId);
       return;
     }
+    ResponseValues before = existing.getFirst();
     jdbc.update("update inspection_response set value_text=coalesce(?,value_text),value_number=coalesce(?,value_number),value_boolean=coalesce(?,value_boolean),value_date=coalesce(?,value_date),observation=coalesce(?,observation),conformity=coalesce(?,conformity),answered_by=?,server_received_at=current_timestamp,updated_at=current_timestamp,version=version+1 where inspection_item_id=?",
         blankToNull(valueText), valueNumber, valueBoolean, valueDate == null ? null : Date.valueOf(valueDate), blankToNull(observation), conformity, technicianId, itemId);
+    ResponseValues after = loadResponseValues(before.id());
+    if (!before.sameAnswer(after)) recordResponseHistory(inspectionId, before.id(), itemId, "UPDATED", before, after, technicianId);
+  }
+
+  private ResponseValues loadResponseValues(UUID responseId) {
+    return jdbc.query("select id,value_text,value_number,value_boolean,value_date,conformity,observation,version from inspection_response where id=?",
+        (rs, row) -> responseValues(rs), responseId).getFirst();
+  }
+
+  private static ResponseValues responseValues(java.sql.ResultSet rs) throws java.sql.SQLException {
+    Date date = rs.getDate("value_date");
+    return new ResponseValues(UUID.fromString(rs.getString("id")), rs.getString("value_text"), rs.getBigDecimal("value_number"),
+        (Boolean) rs.getObject("value_boolean"), date == null ? null : date.toLocalDate(), rs.getString("conformity"), rs.getString("observation"), rs.getInt("version"));
+  }
+
+  private static ResponseValues historyValues(java.sql.ResultSet rs, String prefix) throws java.sql.SQLException {
+    Date date = rs.getDate(prefix + "value_date");
+    return new ResponseValues(null, rs.getString(prefix + "value_text"), rs.getBigDecimal(prefix + "value_number"),
+        (Boolean) rs.getObject(prefix + "value_boolean"), date == null ? null : date.toLocalDate(), rs.getString(prefix + "conformity"), rs.getString(prefix + "observation"), 0);
+  }
+
+  private void recordResponseHistory(UUID inspectionId, UUID responseId, UUID itemId, String action, ResponseValues before, ResponseValues after, UUID technicianId) {
+    jdbc.update("insert into inspection_response_history (id,inspection_id,inspection_response_id,inspection_item_id,action,previous_value_text,previous_value_number,previous_value_boolean,previous_value_date,previous_conformity,previous_observation,value_text,value_number,value_boolean,value_date,conformity,observation,changed_by,response_version) values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        UUID.randomUUID(), inspectionId, responseId, itemId, action,
+        before == null ? null : before.valueText(), before == null ? null : before.valueNumber(), before == null ? null : before.valueBoolean(), before == null || before.valueDate() == null ? null : Date.valueOf(before.valueDate()), before == null ? null : before.conformity(), before == null ? null : before.observation(),
+        after.valueText(), after.valueNumber(), after.valueBoolean(), after.valueDate() == null ? null : Date.valueOf(after.valueDate()), after.conformity(), after.observation(), technicianId, after.version());
   }
 
   private static void requirePair(BigDecimal latitude, BigDecimal longitude) {
@@ -369,6 +420,17 @@ public class InspectionExecutionService {
   public record ChecklistSection(String title, int order, List<ChecklistItem> items) {}
   public record ChecklistItem(UUID id, String sectionTitle, int sectionOrder, String title, String description, String responseType, boolean required, String rulesJson, String optionsJson, int itemOrder, String observation, String valueText, BigDecimal valueNumber, Boolean valueBoolean, LocalDate valueDate, String conformity) {}
   public record AnswerInput(UUID itemId, String valueText, BigDecimal valueNumber, Boolean valueBoolean, LocalDate valueDate, String conformity, String observation) {}
+  public record ResponseHistoryEntry(UUID id, UUID inspectionResponseId, UUID inspectionItemId, String sectionTitle, String itemTitle,
+                                     String action, ResponseValues previous, ResponseValues current, UUID changedBy,
+                                     String changedByName, int responseVersion, Instant changedAt) {}
+  public record ResponseValues(UUID id, String valueText, BigDecimal valueNumber, Boolean valueBoolean, LocalDate valueDate,
+                               String conformity, String observation, int version) {
+    boolean sameAnswer(ResponseValues other) {
+      return java.util.Objects.equals(valueText, other.valueText) && java.util.Objects.equals(valueNumber, other.valueNumber)
+          && java.util.Objects.equals(valueBoolean, other.valueBoolean) && java.util.Objects.equals(valueDate, other.valueDate)
+          && java.util.Objects.equals(conformity, other.conformity) && java.util.Objects.equals(observation, other.observation);
+    }
+  }
   public record CompleteCommand(int version, OffsetDateTime completedAtDevice, BigDecimal latitude, BigDecimal longitude, List<AnswerInput> answers, SignatureInput signature) {}
   public record SignatureInput(String contentType, String dataBase64) {}
   public record EvidenceFile(UUID id, UUID inspectionResponseId, UUID inspectionItemId, String fileName, String contentType, long sizeBytes, Instant createdAt) {}

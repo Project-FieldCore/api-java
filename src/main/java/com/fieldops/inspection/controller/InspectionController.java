@@ -102,6 +102,12 @@ public class InspectionController {
     return execution.checklistForReview(inspectionId);
   }
 
+  @GetMapping("/{inspectionId}/response-history")
+  @PreAuthorize("hasAnyRole('ADMIN','SUPERVISOR')")
+  public List<InspectionExecutionService.ResponseHistoryEntry> responseHistory(@PathVariable UUID inspectionId) {
+    return execution.responseHistoryForReview(inspectionId);
+  }
+
   @GetMapping("/{inspectionId}/evidence/{evidenceId}/content")
   @PreAuthorize("hasAnyRole('ADMIN','SUPERVISOR')")
   public ResponseEntity<byte[]> evidenceContent(@PathVariable UUID inspectionId, @PathVariable UUID evidenceId) {
