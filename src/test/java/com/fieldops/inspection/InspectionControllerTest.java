@@ -26,6 +26,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
@@ -719,6 +720,27 @@ class InspectionControllerTest {
             .contentType("application/json").content("{\"version\":1,\"latitude\":-23.55,\"longitude\":-46.63,\"answers\":[{\"itemId\":\"" + item + "\",\"valueBoolean\":true}]}"))
         .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("SUBMITTED"));
     org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject("select completed_longitude from inspection where id=?", java.math.BigDecimal.class, inspection)).isEqualByComparingTo("-46.6300000");
+  }
+
+  @Test
+  void supervisorDownloadsPdfOnlyForApprovedInspection() throws Exception {
+    UUID supervisor = insertUser("SUPERVISOR", "ACTIVE");
+    UUID technician = insertUser("TECHNICIAN", "ACTIVE");
+    UUID client = insertClient(); UUID site = insertSite(client); UUID version = insertPublishedVersion();
+    UUID approved = insertInspection(version, client, site, technician, supervisor, "APPROVED", 2);
+    UUID pending = insertInspection(version, client, site, technician, supervisor, "SUBMITTED", 1);
+
+    byte[] report = mvc.perform(get("/api/v1/inspections/{inspectionId}/report.pdf", approved).with(principal(supervisor, "SUPERVISOR")))
+        .andExpect(status().isOk())
+        .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PDF))
+        .andExpect(header().string("Content-Disposition", org.hamcrest.Matchers.containsString("inspection-" + approved)))
+        .andReturn().getResponse().getContentAsByteArray();
+    org.assertj.core.api.Assertions.assertThat(new String(report, java.nio.charset.StandardCharsets.ISO_8859_1)).startsWith("%PDF-1.4");
+
+    mvc.perform(get("/api/v1/inspections/{inspectionId}/report.pdf", pending).with(principal(supervisor, "SUPERVISOR")))
+        .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("INSPECTION_REPORT_NOT_AVAILABLE"));
+    mvc.perform(get("/api/v1/inspections/{inspectionId}/report.pdf", approved).with(principal(technician, "TECHNICIAN")))
+        .andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value("ACCESS_DENIED"));
   }
 
   @Test
