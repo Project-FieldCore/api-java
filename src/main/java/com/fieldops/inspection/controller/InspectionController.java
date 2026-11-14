@@ -3,6 +3,7 @@ package com.fieldops.inspection.controller;
 import com.fieldops.inspection.InspectionExecutionService;
 import com.fieldops.inspection.InspectionReportService;
 import com.fieldops.inspection.InspectionSchedulingService;
+import com.fieldops.shared.export.CsvExporter;
 import com.fieldops.shared.security.FieldOpsUserPrincipal;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.DecimalMax;
@@ -66,6 +67,18 @@ public class InspectionController {
       @RequestParam(required = false) UUID technicianId,
       @RequestParam(required = false) UUID clientId) {
     return inspections.list(page, size, sort, status, scheduledFrom, scheduledTo, technicianId, clientId);
+  }
+
+  @GetMapping(value = "/export.csv", produces = "text/csv")
+  @PreAuthorize("hasAnyRole('ADMIN','SUPERVISOR')")
+  public ResponseEntity<byte[]> export(@RequestParam(defaultValue = "scheduledFor,asc") String sort,
+      @RequestParam(required = false) InspectionSchedulingService.Status status,
+      @RequestParam(required = false) @org.springframework.format.annotation.DateTimeFormat(iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE_TIME) OffsetDateTime scheduledFrom,
+      @RequestParam(required = false) @org.springframework.format.annotation.DateTimeFormat(iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE_TIME) OffsetDateTime scheduledTo,
+      @RequestParam(required = false) UUID technicianId, @RequestParam(required = false) UUID clientId) {
+    List<? extends List<?>> rows = inspections.list(0, 10000, sort, status, scheduledFrom, scheduledTo, technicianId, clientId).items().stream()
+        .map(item -> java.util.Arrays.asList(item.id(), item.clientId(), item.siteId(), item.technicianId(), item.title(), item.priority(), item.status(), item.scheduledFor(), item.instructions())).toList();
+    return CsvExporter.download("inspections.csv", List.of("id", "clientId", "siteId", "technicianId", "title", "priority", "status", "scheduledFor", "instructions"), rows);
   }
 
   @GetMapping("/review-queue")

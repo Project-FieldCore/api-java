@@ -6,6 +6,8 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.UUID;
@@ -69,6 +71,18 @@ class ClientControllerTest {
     mvc.perform(post("/api/v1/clients").with(user("technician").roles("TECHNICIAN"))
             .contentType("application/json").content("{\"name\":\"Acme\"}"))
         .andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value("ACCESS_DENIED"));
+  }
+
+  @Test
+  void supervisorExportsFilteredClientsAsCsv() throws Exception {
+    UUID active = insertClient("11.111.111/0001-11", 0);
+    jdbc.update("update client set name='=Formula', status='ACTIVE' where id=?", active);
+    insertClient("22.222.222/0001-22", 0);
+    mvc.perform(get("/api/v1/clients/export.csv").param("q", "Formula").with(supervisor()))
+        .andExpect(status().isOk()).andExpect(content().contentTypeCompatibleWith("text/csv"))
+        .andExpect(header().string("Content-Disposition", org.hamcrest.Matchers.containsString("clients.csv")))
+        .andExpect(content().string(org.hamcrest.Matchers.containsString("'=Formula")))
+        .andExpect(content().string(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("22.222.222/0001-22"))));
   }
 
   private UUID insertClient(String document, int version) {
