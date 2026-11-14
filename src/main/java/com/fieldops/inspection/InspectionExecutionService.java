@@ -9,6 +9,7 @@ import java.sql.Timestamp;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
+import java.util.Base64;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -25,6 +26,7 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class InspectionExecutionService {
   private static final int MAX_EVIDENCE_BYTES = 5 * 1024 * 1024;
+  private static final int MAX_SIGNATURE_BYTES = 1024 * 1024;
   private final JdbcTemplate jdbc;
   private final EvidenceFileStore files;
   private final AuditService audit;
@@ -220,8 +222,30 @@ public class InspectionExecutionService {
     int updated = jdbc.update("update inspection set status='SUBMITTED',completed_at_device=?,completed_latitude=?,completed_longitude=?,submitted_at_server=current_timestamp,updated_at=current_timestamp,version=version+1 where id=? and version=? and status='IN_PROGRESS'",
         device, command.latitude(), command.longitude(), inspectionId, command.version());
     if (updated == 0) throw new ApiException(HttpStatus.CONFLICT, "VERSION_CONFLICT", "Inspection was modified by another request");
+    if (command.signature() != null) storeSignature(inspectionId, technicianId, command.signature());
     audit.recordInspection(technicianId, inspectionId, "SUBMITTED", Status.IN_PROGRESS.name(), Status.SUBMITTED.name());
     return detail(inspectionId, technicianId);
+  }
+
+  private void storeSignature(UUID inspectionId, UUID technicianId, SignatureInput signature) {
+    String contentType = signature.contentType() == null ? "" : signature.contentType().trim().toLowerCase();
+    if (!"image/png".equals(contentType)) {
+      throw new ApiException(HttpStatus.BAD_REQUEST, "SIGNATURE_INVALID", "Signature must be a PNG image");
+    }
+    byte[] bytes;
+    try {
+      bytes = Base64.getDecoder().decode(signature.dataBase64());
+    } catch (IllegalArgumentException ex) {
+      throw new ApiException(HttpStatus.BAD_REQUEST, "SIGNATURE_INVALID", "Signature must be Base64 encoded");
+    }
+    if (bytes.length == 0 || bytes.length > MAX_SIGNATURE_BYTES || !isPng(bytes)) {
+      throw new ApiException(HttpStatus.BAD_REQUEST, "SIGNATURE_INVALID", "Signature must be a PNG image up to 1 MB");
+    }
+    UUID id = UUID.randomUUID();
+    String storageKey = "inspections/" + inspectionId + "/signatures/" + id + ".png";
+    jdbc.update("insert into inspection_signature (id,inspection_id,storage_key,content_type,size_bytes,signed_by) values (?,?,?,?,?,?)",
+        id, inspectionId, storageKey, contentType, bytes.length, technicianId);
+    files.write(storageKey, bytes);
   }
 
   private List<String> pendingRules(UUID inspectionId) {
@@ -255,6 +279,13 @@ public class InspectionExecutionService {
 
   private static boolean allowedImage(String contentType) {
     return "image/jpeg".equals(contentType) || "image/png".equals(contentType) || "image/webp".equals(contentType);
+  }
+
+  private static boolean isPng(byte[] bytes) {
+    byte[] header = {(byte) 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A};
+    if (bytes.length < header.length) return false;
+    for (int index = 0; index < header.length; index++) if (bytes[index] != header[index]) return false;
+    return true;
   }
 
   private static String extension(String contentType) {
@@ -338,7 +369,8 @@ public class InspectionExecutionService {
   public record ChecklistSection(String title, int order, List<ChecklistItem> items) {}
   public record ChecklistItem(UUID id, String sectionTitle, int sectionOrder, String title, String description, String responseType, boolean required, String rulesJson, String optionsJson, int itemOrder, String observation, String valueText, BigDecimal valueNumber, Boolean valueBoolean, LocalDate valueDate, String conformity) {}
   public record AnswerInput(UUID itemId, String valueText, BigDecimal valueNumber, Boolean valueBoolean, LocalDate valueDate, String conformity, String observation) {}
-  public record CompleteCommand(int version, OffsetDateTime completedAtDevice, BigDecimal latitude, BigDecimal longitude, List<AnswerInput> answers) {}
+  public record CompleteCommand(int version, OffsetDateTime completedAtDevice, BigDecimal latitude, BigDecimal longitude, List<AnswerInput> answers, SignatureInput signature) {}
+  public record SignatureInput(String contentType, String dataBase64) {}
   public record EvidenceFile(UUID id, UUID inspectionResponseId, UUID inspectionItemId, String fileName, String contentType, long sizeBytes, Instant createdAt) {}
   public record NonConformityRecord(UUID id, UUID itemId, String severity, String description, String status, Instant createdAt) {}
   private record RuleRow(String title, boolean required, String rules, String valueText, BigDecimal valueNumber, Boolean valueBoolean, Date valueDate, String conformity, String observation, int evidenceCount) {
