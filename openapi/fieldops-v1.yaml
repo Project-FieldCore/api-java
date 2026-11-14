@@ -6,6 +6,8 @@ info:
 servers: [{url: http://localhost:8080, description: Local development}]
 security: [{bearerAuth: []}]
 paths:
+  /api/v1/dashboard/indicators:
+    get: {tags: [Dashboard], summary: Get dashboard indicators, description: Requires ADMIN or SUPERVISOR. Returns inspection totals by state and open nonconformity totals by severity, including zero-value categories., responses: {'200': {description: Dashboard indicators, content: {application/json: {schema: {$ref: '#/components/schemas/DashboardIndicators'}}}}, '401': {$ref: '#/components/responses/Unauthorized'}, '403': {$ref: '#/components/responses/Forbidden'}}}
   /api/v1/auth/login:
     post:
       tags: [Auth]
@@ -196,6 +198,7 @@ components:
     Conflict: {description: Conflicting resource, content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}}
   schemas:
     ErrorResponse: {type: object, required: [timestamp, status, code, message, path], properties: {timestamp: {type: string, format: date-time}, status: {type: integer}, code: {type: string}, message: {type: string}, path: {type: string}, requestId: {type: string}, fieldErrors: {type: array, items: {$ref: '#/components/schemas/FieldError'}}}}
+    DashboardIndicators: {type: object, required: [generatedAt, inspectionsByStatus, openNonConformitiesBySeverity], properties: {generatedAt: {type: string, format: date-time}, inspectionsByStatus: {type: object, additionalProperties: {type: integer, format: int64}, description: Keys are InspectionStatus values; every state is present, including zero totals.}, openNonConformitiesBySeverity: {type: object, additionalProperties: {type: integer, format: int64}, description: Keys are LOW, MEDIUM, HIGH and CRITICAL; every severity is present and only OPEN nonconformities are counted.}}}
     FieldError: {type: object, required: [field, message], properties: {field: {type: string}, message: {type: string}}}
     LoginRequest: {type: object, required: [email, password], properties: {email: {type: string, format: email}, password: {type: string, format: password, writeOnly: true, minLength: 8}}}
     RefreshTokenRequest: {type: object, required: [refreshToken], properties: {refreshToken: {type: string, writeOnly: true}}}
