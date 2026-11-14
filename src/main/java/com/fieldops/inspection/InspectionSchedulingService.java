@@ -3,6 +3,7 @@ package com.fieldops.inspection;
 import com.fieldops.shared.audit.AuditService;
 import com.fieldops.shared.error.ApiException;
 import com.fieldops.shared.pagination.PageQuery;
+import com.fieldops.push.AssignmentPushService;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.time.OffsetDateTime;
@@ -20,11 +21,13 @@ public class InspectionSchedulingService {
   private final JdbcTemplate jdbc;
   private final EvidenceFileStore files;
   private final AuditService audit;
+  private final AssignmentPushService assignmentPush;
 
-  public InspectionSchedulingService(JdbcTemplate jdbc, EvidenceFileStore files, AuditService audit) {
+  public InspectionSchedulingService(JdbcTemplate jdbc, EvidenceFileStore files, AuditService audit, AssignmentPushService assignmentPush) {
     this.jdbc = jdbc;
     this.files = files;
     this.audit = audit;
+    this.assignmentPush = assignmentPush;
   }
 
   @Transactional
@@ -45,6 +48,7 @@ public class InspectionSchedulingService {
     payload.put("to", Status.ASSIGNED.name());
     payload.put("technicianId", command.technicianId().toString());
     audit.recordInspection(supervisorId, id, "SCHEDULED", payload);
+    assignmentPush.queue(command.technicianId(), id, title);
     return get(id);
   }
 
@@ -71,6 +75,7 @@ public class InspectionSchedulingService {
     payload.put("previousTechnicianId", previousTechnicianId.toString());
     payload.put("technicianId", command.technicianId().toString());
     audit.recordInspection(actorId, inspectionId, "ASSIGNED", payload);
+    assignmentPush.queue(command.technicianId(), inspectionId, current.title());
     return get(inspectionId);
   }
 
