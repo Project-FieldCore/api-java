@@ -18,6 +18,8 @@ class OpenApiContractTest {
     String contract = Files.readString(CONTRACT);
 
     assertTrue(contract.contains("/api/v1/auth/login:"));
+    assertTrue(contract.contains("/api/v1/dashboard/indicators:"));
+    assertTrue(contract.contains("DashboardIndicators:"));
     assertTrue(contract.contains("/api/v1/auth/logout:"));
     assertTrue(contract.contains("/api/v1/auth/me:"));
     assertTrue(contract.contains("/api/v1/users:"));
