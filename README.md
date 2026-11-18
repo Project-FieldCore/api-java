@@ -34,6 +34,10 @@ export JWT_SECRET='local-dev-only-jwt-secret-key-32chars!!'
 ./mvnw spring-boot:run
 ```
 
+Todas as rotas de negócio usam o prefixo **`/api/v1`** (ex.: `POST /api/v1/auth/login`).
+`JWT_SECRET` é **obrigatório** (≥ 32 caracteres): sem ele a aplicação não sobe. O valor acima é só de
+exemplo local — nunca versione ou logue um secret real.
+
 | Endpoint | URL |
 |----------|-----|
 | Health | http://localhost:8080/actuator/health |
@@ -50,6 +54,34 @@ cliente→local→equipamento, modelo publicado e inspeções em ASSIGNED / IN_P
 
 - Password (all demo users): `DemoPass123!`
 - Details, credentials table, reset: **[docs/DEMO_SEED.md](docs/DEMO_SEED.md)**
+
+### Smoke test (login)
+
+```bash
+curl -s -X POST http://localhost:8080/api/v1/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"ana.silva@example.com","password":"DemoPass123!"}'
+```
+
+## Formato padronizado de erro
+
+Toda resposta de erro (4xx/5xx) segue o contrato `ErrorResponse` (Notion doc. 12.2):
+
+```json
+{
+  "timestamp": "2026-11-18T21:00:00Z",
+  "status": 400,
+  "code": "VALIDATION_ERROR",
+  "message": "Validation failed",
+  "path": "/api/v1/auth/login",
+  "requestId": "…",
+  "fieldErrors": [{ "field": "email", "message": "must not be blank" }]
+}
+```
+
+`fieldErrors` só vem preenchido em erros de validação (`VALIDATION_ERROR`); nos demais casos é `null`.
+Códigos comuns: `UNAUTHORIZED` (401), `FORBIDDEN` (403), `VALIDATION_ERROR` (400). Stacktrace nunca é exposto.
+Implementação: `shared/error/GlobalExceptionHandler`.
 
 ## Banco de dados e migrations
 
@@ -69,7 +101,7 @@ template+versão e `inspection_item_id`.
 
 ## Status
 
-Sprint 1 — **scaffold** (security skeleton, Flyway placeholder, OpenAPI skeleton). Auth real e CRUDs a partir da Sprint 2.
+Em desenvolvimento: autenticação JWT, CRUDs (clientes, locais, equipamentos, templates, inspeções), migrations Flyway V2/V3 e seed de demo (`dev`). Contrato: `openapi/fieldops-v1.yaml`.
 
 ## Git
 
