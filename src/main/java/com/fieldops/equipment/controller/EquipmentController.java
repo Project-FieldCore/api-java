@@ -1,6 +1,7 @@
 package com.fieldops.equipment.controller;
 
 import com.fieldops.equipment.EquipmentService;
+import com.fieldops.shared.export.CsvExporter;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
@@ -38,6 +39,14 @@ public class EquipmentController {
       @RequestParam(defaultValue = "name,asc") String sort, @RequestParam(required = false) String q,
       @RequestParam(required = false) EquipmentService.Status status, @RequestParam(required = false) UUID siteId) {
     return equipment.list(page, size, sort, q, status, siteId);
+  }
+
+  @GetMapping(value = "/equipment/export.csv", produces = "text/csv")
+  public ResponseEntity<byte[]> export(@RequestParam(defaultValue = "name,asc") String sort, @RequestParam(required = false) String q,
+                                       @RequestParam(required = false) EquipmentService.Status status, @RequestParam(required = false) UUID siteId) {
+    List<? extends List<?>> rows = equipment.list(0, 10000, sort, q, status, siteId).items().stream()
+        .map(item -> java.util.Arrays.asList(item.id(), item.siteId(), item.name(), item.qrCode(), item.assetNumber(), item.serialNumber(), item.status(), item.installedAt(), item.createdAt())).toList();
+    return CsvExporter.download("equipment.csv", List.of("id", "siteId", "name", "qrCode", "assetNumber", "serialNumber", "status", "installedAt", "createdAt"), rows);
   }
 
   @GetMapping("/sites/{siteId}/equipment")

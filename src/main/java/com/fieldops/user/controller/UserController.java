@@ -1,6 +1,7 @@
 package com.fieldops.user.controller;
 
 import com.fieldops.shared.security.Role;
+import com.fieldops.shared.export.CsvExporter;
 import com.fieldops.user.UserService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Email;
@@ -11,6 +12,7 @@ import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 import java.net.URI;
 import java.util.UUID;
+import java.util.List;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -40,6 +42,14 @@ public class UserController {
       @RequestParam(required = false) UserService.Status status,
       @RequestParam(required = false) Role role) {
     return users.list(page, size, sort, q, status, role);
+  }
+
+  @GetMapping(value = "/export.csv", produces = "text/csv")
+  public ResponseEntity<byte[]> export(@RequestParam(defaultValue = "name,asc") String sort, @RequestParam(required = false) String q,
+                                       @RequestParam(required = false) UserService.Status status, @RequestParam(required = false) Role role) {
+    List<? extends List<?>> rows = users.list(0, 10000, sort, q, status, role).items().stream()
+        .map(user -> java.util.Arrays.asList(user.id(), user.name(), user.email(), user.role(), user.status(), user.phone(), user.createdAt())).toList();
+    return CsvExporter.download("users.csv", List.of("id", "name", "email", "role", "status", "phone", "createdAt"), rows);
   }
 
   @GetMapping("/{userId}")
