@@ -415,6 +415,32 @@ class InspectionControllerTest {
   }
 
   @Test
+  void supervisorViewsDashboardIndicatorsByStatusAndOpenNonConformitySeverity() throws Exception {
+    UUID supervisor = insertUser("SUPERVISOR", "ACTIVE");
+    UUID technician = insertUser("TECHNICIAN", "ACTIVE");
+    UUID client = insertClient(); UUID site = insertSite(client); UUID version = insertPublishedVersion();
+    UUID assigned = insertInspection(version, client, site, technician, supervisor, "ASSIGNED", 0);
+    UUID submitted = insertInspection(version, client, site, technician, supervisor, "SUBMITTED", 1);
+    UUID approved = insertInspection(version, client, site, technician, supervisor, "APPROVED", 2);
+    jdbc.update("insert into non_conformity (id,inspection_id,severity,description,status) values (?,?,?,?,?)", UUID.randomUUID(), submitted, "HIGH", "High open", "OPEN");
+    jdbc.update("insert into non_conformity (id,inspection_id,severity,description,status) values (?,?,?,?,?)", UUID.randomUUID(), approved, "CRITICAL", "Critical open", "OPEN");
+    jdbc.update("insert into non_conformity (id,inspection_id,severity,description,status) values (?,?,?,?,?)", UUID.randomUUID(), assigned, "HIGH", "Resolved", "RESOLVED");
+
+    mvc.perform(get("/api/v1/dashboard/indicators").with(principal(supervisor, "SUPERVISOR")))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.generatedAt").exists())
+        .andExpect(jsonPath("$.inspectionsByStatus.ASSIGNED").value(1))
+        .andExpect(jsonPath("$.inspectionsByStatus.SUBMITTED").value(1))
+        .andExpect(jsonPath("$.inspectionsByStatus.APPROVED").value(1))
+        .andExpect(jsonPath("$.inspectionsByStatus.CANCELED").value(0))
+        .andExpect(jsonPath("$.openNonConformitiesBySeverity.HIGH").value(1))
+        .andExpect(jsonPath("$.openNonConformitiesBySeverity.CRITICAL").value(1))
+        .andExpect(jsonPath("$.openNonConformitiesBySeverity.LOW").value(0));
+    mvc.perform(get("/api/v1/dashboard/indicators").with(principal(technician, "TECHNICIAN")))
+        .andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value("ACCESS_DENIED"));
+  }
+
+  @Test
   void supervisorDownloadsEvidenceContentLinkedToInspection() throws Exception {
     UUID supervisor = insertUser("SUPERVISOR", "ACTIVE");
     UUID technician = insertUser("TECHNICIAN", "ACTIVE");
