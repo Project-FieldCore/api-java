@@ -1,6 +1,7 @@
 package com.fieldops.inspection.controller;
 
 import com.fieldops.inspection.InspectionExecutionService;
+import com.fieldops.inspection.InspectionReportService;
 import com.fieldops.inspection.InspectionSchedulingService;
 import com.fieldops.shared.security.FieldOpsUserPrincipal;
 import jakarta.validation.Valid;
@@ -17,6 +18,8 @@ import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -34,9 +37,11 @@ import org.springframework.web.bind.annotation.RestController;
 public class InspectionController {
   private final InspectionSchedulingService inspections;
   private final InspectionExecutionService execution;
-  public InspectionController(InspectionSchedulingService inspections, InspectionExecutionService execution) {
+  private final InspectionReportService reports;
+  public InspectionController(InspectionSchedulingService inspections, InspectionExecutionService execution, InspectionReportService reports) {
     this.inspections = inspections;
     this.execution = execution;
+    this.reports = reports;
   }
 
   @PostMapping
@@ -80,6 +85,15 @@ public class InspectionController {
   @PreAuthorize("hasAnyRole('ADMIN','SUPERVISOR')")
   public InspectionSchedulingService.Monitoring monitoring(@PathVariable UUID inspectionId) {
     return inspections.monitoring(inspectionId);
+  }
+
+  @GetMapping(value = "/{inspectionId}/report.pdf", produces = "application/pdf")
+  @PreAuthorize("hasAnyRole('ADMIN','SUPERVISOR')")
+  public ResponseEntity<byte[]> report(@PathVariable UUID inspectionId) {
+    byte[] pdf = reports.approvedInspectionPdf(inspectionId);
+    return ResponseEntity.ok().contentType(MediaType.APPLICATION_PDF)
+        .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=inspection-" + inspectionId + ".pdf")
+        .body(pdf);
   }
 
   @GetMapping("/{inspectionId}/checklist")
