@@ -222,7 +222,9 @@ public class InspectionController {
     List<InspectionExecutionService.AnswerInput> answers = body.answers() == null ? List.of() : body.answers().stream()
         .map(answer -> new InspectionExecutionService.AnswerInput(answer.itemId(), answer.valueText(), answer.valueNumber(), answer.valueBoolean(), answer.valueDate(), answer.conformity(), answer.observation()))
         .toList();
-    return execution.complete(inspectionId, principal.userId(), new InspectionExecutionService.CompleteCommand(body.version(), body.completedAtDevice(), body.latitude(), body.longitude(), answers));
+    InspectionExecutionService.SignatureInput signature = body.signature() == null ? null
+        : new InspectionExecutionService.SignatureInput(body.signature().contentType(), body.signature().dataBase64());
+    return execution.complete(inspectionId, principal.userId(), new InspectionExecutionService.CompleteCommand(body.version(), body.completedAtDevice(), body.latitude(), body.longitude(), answers, signature));
   }
 
   public record ScheduleInspectionRequest(@NotNull UUID templateVersionId, @NotNull UUID clientId, @NotNull UUID siteId,
@@ -236,7 +238,8 @@ public class InspectionController {
   public record ConfirmEquipmentRequest(@NotBlank @Size(max = 255) String qrCode) {}
   public record StartInspectionRequest(OffsetDateTime startedAtDevice, @DecimalMin("-90.0") @DecimalMax("90.0") BigDecimal latitude, @DecimalMin("-180.0") @DecimalMax("180.0") BigDecimal longitude) {}
   public record ObservationRequest(@Size(max = 2000) String observation) {}
-  public record CompleteInspectionRequest(@NotNull @Min(0) Integer version, OffsetDateTime completedAtDevice, @DecimalMin("-90.0") @DecimalMax("90.0") BigDecimal latitude, @DecimalMin("-180.0") @DecimalMax("180.0") BigDecimal longitude, List<AnswerRequest> answers) {}
+  public record CompleteInspectionRequest(@NotNull @Min(0) Integer version, OffsetDateTime completedAtDevice, @DecimalMin("-90.0") @DecimalMax("90.0") BigDecimal latitude, @DecimalMin("-180.0") @DecimalMax("180.0") BigDecimal longitude, List<AnswerRequest> answers, @Valid SignatureRequest signature) {}
+  public record SignatureRequest(@NotBlank @Size(max = 127) String contentType, @NotBlank @Size(max = 1400000) String dataBase64) {}
   public record NonConformityRequest(@NotNull UUID itemId, @NotBlank @Size(max = 32) String severity, @NotBlank @Size(max = 2000) String description) {}
   public record AnswerRequest(@NotNull UUID itemId, @Size(max = 4000) String valueText, BigDecimal valueNumber, Boolean valueBoolean, LocalDate valueDate, @Size(max = 32) String conformity, @Size(max = 2000) String observation) {}
 }

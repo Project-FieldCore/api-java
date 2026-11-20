@@ -167,9 +167,10 @@ class InspectionControllerTest {
     mvc.perform(put("/api/v1/inspections/my/{id}/items/{itemId}/observation", inspection, item).with(principal(technician, "TECHNICIAN")).contentType("application/json").content("{\"observation\":\"Vazamento na junta\"}"))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.observation").value("Vazamento na junta"));
-    mvc.perform(post("/api/v1/inspections/my/{id}/complete", inspection).with(principal(technician, "TECHNICIAN")).contentType("application/json").content("{\"version\":1,\"answers\":[{\"itemId\":\"" + item + "\",\"conformity\":\"NON_CONFORMING\",\"observation\":\"Vazamento na junta\"}]}"))
+    mvc.perform(post("/api/v1/inspections/my/{id}/complete", inspection).with(principal(technician, "TECHNICIAN")).contentType("application/json").content("{\"version\":1,\"answers\":[{\"itemId\":\"" + item + "\",\"conformity\":\"NON_CONFORMING\",\"observation\":\"Vazamento na junta\"}],\"signature\":{\"contentType\":\"image/png\",\"dataBase64\":\"iVBORw0KGgo=\"}}"))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.status").value("SUBMITTED"));
+    org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject("select count(*) from inspection_signature where inspection_id=? and signed_by=?", Integer.class, inspection, technician)).isEqualTo(1);
     mvc.perform(get("/api/v1/inspections/my").with(principal(technician, "TECHNICIAN")))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.length()").value(0));
