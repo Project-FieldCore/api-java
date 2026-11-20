@@ -94,6 +94,7 @@ Para validar as migrations contra PostgreSQL real via Testcontainers/Docker:
 No profile `dev`, a aplicação cria dados de demonstração idempotentes. As credenciais locais,
 o conteúdo gerado e as instruções de reset estão em [docs/DEMO_SEED.md](docs/DEMO_SEED.md).
 Esses usuários existem somente para desenvolvimento e demonstração local.
+O roteiro executável de login, execução e revisão está em [docs/DEMO_END_TO_END.md](docs/DEMO_END_TO_END.md).
 
 API REST do **FieldOps** (org FieldCore) — Java 25 + Spring Boot 4.1.
 
