@@ -1,5 +1,100 @@
 # api-java
 
+## Bootstrap local
+
+Este guia permite iniciar a API localmente sem depender de credenciais reais. O perfil padrão
+`dev` usa H2 em memória, aplica as migrations Flyway e cria dados de demonstração.
+
+### 1. Pré-requisitos
+
+- JDK 25 (`java -version`)
+- Git
+- Não é necessário instalar Maven: o Maven Wrapper está versionado no repositório.
+- PostgreSQL 16+ é necessário somente para executar com o profile `postgres`.
+
+### 2. Configurar a variável de ambiente
+
+`JWT_SECRET` é obrigatório e deve conter pelo menos 32 caracteres. Use um valor local, que não
+deve ser compartilhado ou enviado ao Git.
+
+**PowerShell (Windows)**
+
+```powershell
+$env:JWT_SECRET = 'troque-por-uma-chave-local-com-32-caracteres'
+```
+
+**bash (Linux/macOS)**
+
+```bash
+export JWT_SECRET='troque-por-uma-chave-local-com-32-caracteres'
+```
+
+### 3. Iniciar com H2 (recomendado)
+
+O profile `dev` já é o padrão e não exige banco externo.
+
+```powershell
+.\mvnw.cmd spring-boot:run
+```
+
+```bash
+./mvnw spring-boot:run
+```
+
+Após o log indicar que a aplicação iniciou, confira:
+
+| Recurso | Endereço |
+| --- | --- |
+| Health | http://localhost:8080/actuator/health |
+| Swagger UI | http://localhost:8080/swagger-ui.html |
+| OpenAPI | http://localhost:8080/v3/api-docs |
+| Console H2 (dev) | http://localhost:8080/h2-console |
+
+Para o console H2, use a URL JDBC configurada em `src/main/resources/application-dev.yml`,
+usuário `sa` e senha vazia.
+
+### 4. Executar com PostgreSQL
+
+Crie um banco local e defina somente variáveis de ambiente. Os valores abaixo são exemplos;
+não use senhas reais ou de ambientes compartilhados.
+
+```powershell
+$env:SPRING_PROFILES_ACTIVE = 'postgres'
+$env:DATABASE_URL = 'jdbc:postgresql://localhost:5432/fieldops'
+$env:DATABASE_USER = 'fieldops'
+$env:DATABASE_PASSWORD = 'sua-senha-local'
+$env:JWT_SECRET = 'troque-por-uma-chave-local-com-32-caracteres'
+.\mvnw.cmd spring-boot:run
+```
+
+O Flyway executa as migrations em `src/main/resources/db/migration` automaticamente no startup.
+
+### 5. Validar a instalação
+
+```powershell
+.\mvnw.cmd -q test
+Invoke-WebRequest http://localhost:8080/actuator/health | Select-Object -Expand Content
+```
+
+No Linux/macOS:
+
+```bash
+./mvnw -q test
+curl http://localhost:8080/actuator/health
+```
+
+Para validar as migrations contra PostgreSQL real via Testcontainers/Docker:
+
+```bash
+./mvnw -Dtest=PostgresMigrationIT test
+```
+
+### Dados de demonstração
+
+No profile `dev`, a aplicação cria dados de demonstração idempotentes. As credenciais locais,
+o conteúdo gerado e as instruções de reset estão em [docs/DEMO_SEED.md](docs/DEMO_SEED.md).
+Esses usuários existem somente para desenvolvimento e demonstração local.
+
 API REST do **FieldOps** (org FieldCore) — Java 25 + Spring Boot 4.1.
 
 ## Documentação
@@ -69,7 +164,8 @@ template+versão e `inspection_item_id`.
 
 ## Status
 
-Sprint 1 — **scaffold** (security skeleton, Flyway placeholder, OpenAPI skeleton). Auth real e CRUDs a partir da Sprint 2.
+A API possui autenticação JWT, migrations Flyway, cadastros, templates e fluxos de inspeção.
+Consulte o OpenAPI local para o contrato atualmente disponível e as issues/PRs para o roadmap.
 
 ## Git
 
