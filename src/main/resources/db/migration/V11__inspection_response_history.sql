@@ -1,0 +1,30 @@
+CREATE TABLE inspection_response_history (
+    id UUID PRIMARY KEY,
+    inspection_id UUID NOT NULL,
+    inspection_response_id UUID NOT NULL,
+    inspection_item_id UUID NOT NULL,
+    action VARCHAR(16) NOT NULL,
+    previous_value_text TEXT,
+    previous_value_number DECIMAL(18,4),
+    previous_value_boolean BOOLEAN,
+    previous_value_date DATE,
+    previous_conformity VARCHAR(32),
+    previous_observation VARCHAR(2000),
+    value_text TEXT,
+    value_number DECIMAL(18,4),
+    value_boolean BOOLEAN,
+    value_date DATE,
+    conformity VARCHAR(32),
+    observation VARCHAR(2000),
+    changed_by UUID NOT NULL,
+    response_version INTEGER NOT NULL,
+    changed_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT fk_response_history_inspection FOREIGN KEY (inspection_id) REFERENCES inspection (id) ON DELETE CASCADE,
+    CONSTRAINT fk_response_history_response FOREIGN KEY (inspection_response_id) REFERENCES inspection_response (id) ON DELETE CASCADE,
+    CONSTRAINT fk_response_history_item FOREIGN KEY (inspection_item_id) REFERENCES inspection_item_snapshot (id) ON DELETE CASCADE,
+    CONSTRAINT fk_response_history_changed_by FOREIGN KEY (changed_by) REFERENCES app_user (id),
+    CONSTRAINT ck_response_history_action CHECK (action IN ('CREATED', 'UPDATED')),
+    CONSTRAINT ck_response_history_version CHECK (response_version >= 0)
+);
+
+CREATE INDEX ix_response_history_inspection_changed ON inspection_response_history (inspection_id, changed_at, id);
