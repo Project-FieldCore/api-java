@@ -44,6 +44,7 @@ class InspectionControllerTest {
   }
 
   @AfterEach void clearDatabase() {
+    jdbc.update("delete from inspection_item_review_comment");
     jdbc.update("delete from sync_idempotency");
     jdbc.update("delete from mobile_sync_operation");
     jdbc.update("delete from mobile_sync_tombstone");
@@ -746,6 +747,29 @@ class InspectionControllerTest {
         .andExpect(jsonPath("$[1].current.observation").value("Leitura corrigida"))
         .andExpect(jsonPath("$[1].changedBy").value(technician.toString()));
     mvc.perform(get("/api/v1/inspections/{inspectionId}/response-history", inspection).with(principal(technician, "TECHNICIAN")))
+        .andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value("ACCESS_DENIED"));
+  }
+
+  @Test
+  void supervisorAddsAndListsReviewCommentsPerItem() throws Exception {
+    UUID technician = insertUser("TECHNICIAN", "ACTIVE");
+    UUID supervisor = insertUser("SUPERVISOR", "ACTIVE");
+    UUID client = insertClient(); UUID site = insertSite(client); UUID version = insertPublishedVersion();
+    UUID inspection = insertInspection(version, client, site, technician, supervisor, "UNDER_REVIEW", 2);
+    UUID item = insertSnapshot(inspection);
+
+    mvc.perform(post("/api/v1/inspections/{inspectionId}/items/{itemId}/review-comments", inspection, item)
+            .with(principal(supervisor, "SUPERVISOR")).contentType("application/json").content("{\"comment\":\"Reenviar foto com melhor foco\"}"))
+        .andExpect(status().isCreated()).andExpect(jsonPath("$.inspectionItemId").value(item.toString()))
+        .andExpect(jsonPath("$.comment").value("Reenviar foto com melhor foco"))
+        .andExpect(jsonPath("$.reviewerId").value(supervisor.toString()));
+    mvc.perform(get("/api/v1/inspections/{inspectionId}/item-review-comments", inspection).with(principal(supervisor, "SUPERVISOR")))
+        .andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(1))
+        .andExpect(jsonPath("$[0].itemTitle").value("Item"));
+    org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject(
+        "select count(*) from audit_event where entity_id=? and action='ITEM_REVIEW_COMMENTED'", Integer.class, inspection)).isEqualTo(1);
+    mvc.perform(post("/api/v1/inspections/{inspectionId}/items/{itemId}/review-comments", inspection, item)
+            .with(principal(technician, "TECHNICIAN")).contentType("application/json").content("{\"comment\":\"Tentativa\"}"))
         .andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value("ACCESS_DENIED"));
   }
 

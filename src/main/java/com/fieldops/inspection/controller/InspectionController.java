@@ -108,6 +108,20 @@ public class InspectionController {
     return execution.responseHistoryForReview(inspectionId);
   }
 
+  @GetMapping("/{inspectionId}/item-review-comments")
+  @PreAuthorize("hasAnyRole('ADMIN','SUPERVISOR')")
+  public List<InspectionExecutionService.ItemReviewComment> itemReviewComments(@PathVariable UUID inspectionId) {
+    return execution.reviewComments(inspectionId);
+  }
+
+  @PostMapping("/{inspectionId}/items/{itemId}/review-comments")
+  @PreAuthorize("hasAnyRole('ADMIN','SUPERVISOR')")
+  public ResponseEntity<InspectionExecutionService.ItemReviewComment> addItemReviewComment(
+      @PathVariable UUID inspectionId, @PathVariable UUID itemId, @Valid @RequestBody ItemReviewCommentRequest body,
+      @AuthenticationPrincipal FieldOpsUserPrincipal principal) {
+    return ResponseEntity.status(201).body(execution.addReviewComment(inspectionId, itemId, principal.userId(), body.comment()));
+  }
+
   @GetMapping("/{inspectionId}/evidence/{evidenceId}/content")
   @PreAuthorize("hasAnyRole('ADMIN','SUPERVISOR')")
   public ResponseEntity<byte[]> evidenceContent(@PathVariable UUID inspectionId, @PathVariable UUID evidenceId) {
@@ -255,6 +269,7 @@ public class InspectionController {
   public record CancelInspectionRequest(@NotBlank @Size(max = 1000) String reason, @NotNull @Min(0) Integer version) {}
   public record ApproveReviewRequest(@Size(max = 2000) String comentario) {}
   public record RejectReviewRequest(@NotBlank @Size(max = 2000) String motivo) {}
+  public record ItemReviewCommentRequest(@NotBlank @Size(max = 2000) String comment) {}
   public record ConfirmEquipmentRequest(@NotBlank @Size(max = 255) String qrCode) {}
   public record StartInspectionRequest(OffsetDateTime startedAtDevice, @DecimalMin("-90.0") @DecimalMax("90.0") BigDecimal latitude, @DecimalMin("-180.0") @DecimalMax("180.0") BigDecimal longitude) {}
   public record ObservationRequest(@Size(max = 2000) String observation) {}
