@@ -1,0 +1,3 @@
+package com.fieldops.push;
+import java.util.UUID; import org.springframework.jdbc.core.JdbcTemplate; import org.springframework.stereotype.Service;
+@Service public class AssignmentPushService { private final JdbcTemplate jdbc; public AssignmentPushService(JdbcTemplate jdbc){this.jdbc=jdbc;} public void queue(UUID technician,UUID inspection,String title){jdbc.query("select id from push_subscription where technician_id=? and enabled=true",rs->{jdbc.update("insert into push_notification_outbox (id,subscription_id,inspection_id,type,title,body) values (?,?,?,?,?,?)",UUID.randomUUID(),UUID.fromString(rs.getString(1)),inspection,"INSPECTION_ASSIGNED","Nova inspeção atribuída",title);},technician);} }
