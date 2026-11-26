@@ -149,6 +149,35 @@ curl http://localhost:8080/actuator/health
 
 Detalhes (usuários demo, CORS/painel web, imagem): [docs/DEPLOY_CONTAINER.md](docs/DEPLOY_CONTAINER.md).
 
+### Consultar OpenAPI e diagramas
+
+Swagger UI e o OpenAPI gerado pelo springdoc são **públicos** (sem token) nos profiles `dev` e
+`postgres`; as rotas protegidas exigem login (`POST /api/v1/auth/login` → **Authorize** na UI).
+
+| Onde | Swagger UI | OpenAPI (JSON) |
+|------|------------|----------------|
+| Local (`./mvnw spring-boot:run`) | http://localhost:8080/swagger-ui.html | http://localhost:8080/v3/api-docs |
+| Container (porta publicada, padrão 8080) | http://localhost:8080/swagger-ui.html | http://localhost:8080/v3/api-docs |
+| DEV (EC2 + Nginx) | http://34.196.177.92/swagger-ui.html | http://34.196.177.92/v3/api-docs |
+
+`/swagger-ui.html` redireciona para `/swagger-ui/index.html`. O IP do DEV pode mudar (Learner Lab);
+confira o `AWS_HOST` do Environment `development`. O contrato versionado fica em
+[`openapi/fieldops-v1.yaml`](openapi/fieldops-v1.yaml); a descrição do Swagger UI também traz os
+links abaixo (`OpenApiConfig`).
+
+Diagramas principais (repo [docs](https://github.com/Project-FieldCore/docs)):
+
+- [Diagrama de classes (Anexo D)](https://github.com/Project-FieldCore/docs/blob/main/NOTION/pages/22%20Anexo%20D%20-%20Diagrama%20de%20Classe%203c63130b4ab782fe962c018b0adf27b3.md)
+- [Modelo de dados](https://github.com/Project-FieldCore/docs/blob/main/NOTION/pages/10%20-%20Modelo%20de%20Dados%20eb43130b4ab7824f85b881c97289b28f.md)
+- Fluxos por papel (Mermaid): [índice](https://github.com/Project-FieldCore/docs/blob/main/FLUXOS/README.md) ·
+  [jornada](https://github.com/Project-FieldCore/docs/blob/main/FLUXOS/jornada.md) ·
+  [técnico](https://github.com/Project-FieldCore/docs/blob/main/FLUXOS/tecnico.md) ·
+  [supervisor](https://github.com/Project-FieldCore/docs/blob/main/FLUXOS/supervisor.md) ·
+  [administrador](https://github.com/Project-FieldCore/docs/blob/main/FLUXOS/administrador.md)
+
+Os erros da API seguem o formato padronizado (`timestamp`, `status`, `code`, `message`, `path`,
+`requestId`, `fieldErrors`), descrito no OpenAPI.
+
 ### Demo seed (`dev` only)
 
 On startup with profile `dev`, `DevDemoSeed` creates (idempotently) admin / supervisor / technician,
