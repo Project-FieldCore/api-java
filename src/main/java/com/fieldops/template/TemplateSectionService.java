@@ -16,7 +16,10 @@ public class TemplateSectionService {
   public TemplateSectionService(JdbcTemplate jdbc) { this.jdbc = jdbc; }
 
   public List<Section> list(UUID templateVersionId) {
-    requireEditableVersion(templateVersionId);
+    // Consultar o checklist publicado é necessário para exibição, agendamento
+    // e execução. A restrição de rascunho se aplica somente às operações que
+    // alteram a versão (criar/reordenar), não à leitura.
+    requireVersion(templateVersionId);
     return jdbc.query("select * from template_section where template_version_id=? order by display_order,id", (rs, row) -> map(rs), templateVersionId);
   }
 
@@ -42,6 +45,10 @@ public class TemplateSectionService {
 
   private Section get(UUID id) { return jdbc.queryForObject("select * from template_section where id=?", (rs, row) -> map(rs), id); }
   private boolean belongsToVersion(UUID id, UUID versionId) { Boolean value = jdbc.queryForObject("select exists(select 1 from template_section where id=? and template_version_id=?)", Boolean.class, id, versionId); return Boolean.TRUE.equals(value); }
+  private void requireVersion(UUID id) {
+    Boolean exists = jdbc.queryForObject("select exists(select 1 from inspection_template_version where id=?)", Boolean.class, id);
+    if (!Boolean.TRUE.equals(exists)) throw versionNotFound();
+  }
   private void requireEditableVersion(UUID id) {
     List<Boolean> versions = jdbc.query("select t.status='DRAFT' from inspection_template_version v join inspection_template t on t.id=v.template_id where v.id=?", (rs, row) -> rs.getBoolean(1), id);
     if (versions.isEmpty()) throw versionNotFound();
