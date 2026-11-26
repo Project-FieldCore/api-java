@@ -84,7 +84,7 @@ public class SiteController {
   }
 
   public record SiteRequest(@NotBlank @Size(max = 160) String name, @Size(max = 1000) String description,
-                            @Size(max = 255) String addressLine, @Size(max = 120) String city, @Size(max = 120) String state,
+                            @NotBlank @Size(max = 255) String addressLine, @Size(max = 120) String city, @Size(max = 120) String state,
                             @Size(max = 32) String postalCode, @DecimalMin("-90.0") @DecimalMax("90.0") BigDecimal latitude,
                             @DecimalMin("-180.0") @DecimalMax("180.0") BigDecimal longitude, @Size(max = 160) String contactName,
                             @Size(max = 32) String contactPhone) {

@@ -8,6 +8,7 @@ import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 import java.net.URI;
 import java.util.UUID;
@@ -76,10 +77,10 @@ public class ClientController {
   }
 
   public record CreateClientRequest(@NotBlank @Size(max = 160) String name, @Size(max = 255) String legalName,
-                                    @Size(max = 64) String document, @Email @Size(max = 320) String email,
+                                    @NotBlank @Pattern(regexp = "\\d{14}") String document, @Email @Size(max = 320) String email,
                                     @Size(max = 32) String phone) {}
   public record UpdateClientRequest(@Size(max = 160) String name, @Size(max = 255) String legalName,
-                                    @Size(max = 64) String document, @Email @Size(max = 320) String email,
+                                    @Pattern(regexp = "\\d{14}") String document, @Email @Size(max = 320) String email,
                                     @Size(max = 32) String phone, @NotNull @Min(0) Integer version) {}
   public record StatusChangeRequest(@NotNull ClientService.Status status, @NotNull @Min(0) Integer version) {}
 }

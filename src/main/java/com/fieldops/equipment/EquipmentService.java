@@ -76,7 +76,7 @@ public class EquipmentService {
     try {
       jdbc.update(
           "insert into equipment (id,site_id,name,qr_code,asset_number,serial_number,manufacturer,model,description,status,installed_at) values (?,?,?,?,?,?,?,?,?,?,?)",
-          id, siteId, command.name(), command.qrCode(), command.assetNumber(), command.serialNumber(),
+          id, siteId, command.name(), generatedQrCode(id), command.assetNumber(), command.serialNumber(),
           command.manufacturer(), command.model(), command.description(), "ACTIVE", date(command.installedAt()));
     } catch (DataIntegrityViolationException ex) {
       throw conflict(ex);
@@ -89,9 +89,8 @@ public class EquipmentService {
     Equipment current = get(id);
     try {
       int updated = jdbc.update(
-          "update equipment set name=?,qr_code=?,asset_number=?,serial_number=?,manufacturer=?,model=?,description=?,installed_at=?,updated_at=current_timestamp,version=version+1 where id=? and version=?",
-          value(command.name(), current.name()), value(command.qrCode(), current.qrCode()),
-          value(command.assetNumber(), current.assetNumber()), value(command.serialNumber(), current.serialNumber()),
+          "update equipment set name=?,asset_number=?,serial_number=?,manufacturer=?,model=?,description=?,installed_at=?,updated_at=current_timestamp,version=version+1 where id=? and version=?",
+          value(command.name(), current.name()), value(command.assetNumber(), current.assetNumber()), value(command.serialNumber(), current.serialNumber()),
           value(command.manufacturer(), current.manufacturer()), value(command.model(), current.model()),
           value(command.description(), current.description()),
           date(value(command.installedAt(), current.installedAt())), id, command.version());
@@ -99,21 +98,6 @@ public class EquipmentService {
     } catch (DataIntegrityViolationException ex) {
       throw conflict(ex);
     }
-    return get(id);
-  }
-
-  @Transactional
-  public Equipment assignQrCode(UUID id, QrCodeCommand command) {
-    get(id);
-    int updated;
-    try {
-      updated = jdbc.update(
-          "update equipment set qr_code=?,updated_at=current_timestamp,version=version+1 where id=? and version=?",
-          command.qrCode(), id, command.version());
-    } catch (DataIntegrityViolationException ex) {
-      throw qrCodeConflict();
-    }
-    if (updated == 0) throw versionConflict();
     return get(id);
   }
 
@@ -134,6 +118,7 @@ public class EquipmentService {
 
   private static <T> T value(T update, T current) { return update == null ? current : update; }
   private static Date date(LocalDate value) { return value == null ? null : Date.valueOf(value); }
+  private static String generatedQrCode(UUID equipmentId) { return "fieldops://equipment/" + equipmentId; }
 
   private static Equipment map(ResultSet rs) throws SQLException {
     Date installedAt = rs.getDate("installed_at");
@@ -148,21 +133,19 @@ public class EquipmentService {
   private static Instant instant(Timestamp value) { return value.toInstant(); }
   private static ApiException siteNotFound() { return new ApiException(HttpStatus.NOT_FOUND, "SITE_NOT_FOUND", "Site not found"); }
   private static ApiException equipmentNotFound() { return new ApiException(HttpStatus.NOT_FOUND, "EQUIPMENT_NOT_FOUND", "Equipment not found"); }
-  private static ApiException qrCodeConflict() { return new ApiException(HttpStatus.CONFLICT, "QR_CODE_ALREADY_EXISTS", "QR code is already assigned to another equipment"); }
   private static ApiException serialConflict() { return new ApiException(HttpStatus.CONFLICT, "SERIAL_NUMBER_ALREADY_EXISTS", "Serial number is already in use at this site"); }
   private static ApiException versionConflict() { return new ApiException(HttpStatus.CONFLICT, "VERSION_CONFLICT", "Equipment was modified by another request"); }
   private static ApiException conflict(DataIntegrityViolationException ex) {
     String message = ex.getMostSpecificCause().getMessage();
-    return message != null && message.toLowerCase().contains("uk_equipment_qr_code") ? qrCodeConflict() : serialConflict();
+    return serialConflict();
   }
 
   public enum Status { ACTIVE, INACTIVE, DECOMMISSIONED }
-  public record CreateCommand(String name, String qrCode, String assetNumber, String serialNumber, String manufacturer,
+  public record CreateCommand(String name, String assetNumber, String serialNumber, String manufacturer,
                               String model, String description, LocalDate installedAt) {}
-  public record UpdateCommand(String name, String qrCode, String assetNumber, String serialNumber, String manufacturer,
+  public record UpdateCommand(String name, String assetNumber, String serialNumber, String manufacturer,
                               String model, String description, LocalDate installedAt, int version) {}
   public record StatusCommand(Status status, int version) {}
-  public record QrCodeCommand(String qrCode, int version) {}
   public record Equipment(UUID id, UUID siteId, String name, String qrCode, String assetNumber, String serialNumber,
                           String manufacturer, String model, String description, Status status, LocalDate installedAt,
                           Instant createdAt, Instant updatedAt, int version) {}

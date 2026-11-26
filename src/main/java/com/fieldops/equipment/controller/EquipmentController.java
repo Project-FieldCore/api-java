@@ -97,15 +97,8 @@ public class EquipmentController {
     return equipment.getByQrCode(qrCode);
   }
 
-  @PatchMapping("/equipment/{equipmentId}/qr-code")
-  public EquipmentService.Equipment assignQrCode(
-      @PathVariable UUID equipmentId, @Valid @RequestBody QrCodeRequest body) {
-    return equipment.assignQrCode(equipmentId, new EquipmentService.QrCodeCommand(body.qrCode(), body.version()));
-  }
-
   public record EquipmentRequest(
       @NotBlank @Size(max = 160) String name,
-      @NotBlank @Size(max = 255) String qrCode,
       @Size(max = 100) String assetNumber,
       @Size(max = 100) String serialNumber,
       @Size(max = 160) String manufacturer,
@@ -114,13 +107,12 @@ public class EquipmentController {
       @PastOrPresent LocalDate installedAt) {
     EquipmentService.CreateCommand createCommand() {
       return new EquipmentService.CreateCommand(
-          name, qrCode, assetNumber, serialNumber, manufacturer, model, description, installedAt);
+          name, assetNumber, serialNumber, manufacturer, model, description, installedAt);
     }
   }
 
   public record EquipmentUpdateRequest(
       @Size(max = 160) String name,
-      @Size(max = 255) String qrCode,
       @Size(max = 100) String assetNumber,
       @Size(max = 100) String serialNumber,
       @Size(max = 160) String manufacturer,
@@ -130,11 +122,10 @@ public class EquipmentController {
       @NotNull @Min(0) Integer version) {
     EquipmentService.UpdateCommand command() {
       return new EquipmentService.UpdateCommand(
-          name, qrCode, assetNumber, serialNumber, manufacturer, model, description, installedAt, version);
+          name, assetNumber, serialNumber, manufacturer, model, description, installedAt, version);
     }
   }
 
   public record StatusChangeRequest(@NotNull EquipmentService.Status status, @NotNull @Min(0) Integer version) {}
   public record DeleteRequest(@NotNull @Min(0) Integer version) {}
-  public record QrCodeRequest(@NotBlank @Size(max = 255) String qrCode, @NotNull @Min(0) Integer version) {}
 }
