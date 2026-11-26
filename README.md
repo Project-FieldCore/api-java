@@ -117,6 +117,7 @@ Especificação do produto, gestão e convenções (fonte canônica):
 - **PR validation** (`develop` / `main`): `./mvnw -B verify` — [docs/CI.md](docs/CI.md)
 - **Deploy DEV** (push em `develop`): EC2 + systemd + Nginx — [docs/DEPLOY_EC2.md](docs/DEPLOY_EC2.md)
 - **Secrets / Environments**: [docs/SECRETS.md](docs/SECRETS.md)
+- **Container / demo local** (Docker + Compose, API + PostgreSQL): [docs/DEPLOY_CONTAINER.md](docs/DEPLOY_CONTAINER.md)
 - **Deploy PRD**: manual (`workflow_dispatch`), outra EC2
 
 ```bash
@@ -138,6 +139,15 @@ export JWT_SECRET='local-dev-only-jwt-secret-key-32chars!!'
 | H2 console | http://localhost:8080/h2-console |
 
 Profile `postgres`: `SPRING_PROFILES_ACTIVE=postgres` (requer `JWT_SECRET` e PostgreSQL).
+
+### Executar por container (demo)
+
+```bash
+cp .env.example .env && docker compose up --build   # API + PostgreSQL + dados de demo
+curl http://localhost:8080/actuator/health
+```
+
+Detalhes (usuários demo, CORS/painel web, imagem): [docs/DEPLOY_CONTAINER.md](docs/DEPLOY_CONTAINER.md).
 
 ### Consultar OpenAPI e diagramas
 
