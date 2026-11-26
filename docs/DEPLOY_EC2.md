@@ -157,7 +157,7 @@ Detalhes e valores: [SECRETS.md](SECRETS.md).
 
 1. **Settings → Environments** → criar `development` e (quando houver EC2 PRD) `production`.
 2. Em cada Environment, secrets: `AWS_HOST`, `JWT_SECRET`, `DATABASE_URL`, `DATABASE_USER`, `DATABASE_PASSWORD`.
-3. Em cada Environment, variables: `TARGET_DIR`, `SYSTEMD_SERVICE`, `SERVER_PORT`.
+3. Em cada Environment, variables: `TARGET_DIR`, `SYSTEMD_SERVICE`, `SERVER_PORT`, `CORS_ALLOWED_ORIGINS` (origem(ns) do painel web, separadas por vírgula; ex. development = `http://18.205.200.49`; **variable, não secret**; sem ela o CORS libera só `http://localhost:3000` e o painel recebe 403 `Invalid CORS request` no preflight).
 4. Repo/org secrets: `AWS_USER`, `AWS_SSH_KEY` (acesso do repositório aos org secrets, se forem de org).
 5. Branch protection em `develop`: exigir o check **Pull Request Validation** antes do merge (o deploy DEV usa `-DskipTests` no package).
 

@@ -28,6 +28,9 @@ decode_b64_var DATABASE_URL
 decode_b64_var DATABASE_USER
 decode_b64_var DATABASE_PASSWORD
 
+# CORS_ALLOWED_ORIGINS is a non-secret Environment variable (comma-separated origins); passed as-is.
+CORS_ALLOWED_ORIGINS="${CORS_ALLOWED_ORIGINS:-}"
+
 echo "PATCH started: DEPLOY_TARGET=${DEPLOY_TARGET} SPRING_PROFILES_ACTIVE=${SPRING_PROFILES_ACTIVE} SERVER_PORT=${SERVER_PORT}"
 
 write_env_file() {
@@ -39,6 +42,9 @@ write_env_file() {
     echo "DATABASE_URL=${DATABASE_URL}"
     echo "DATABASE_USER=${DATABASE_USER}"
     echo "DATABASE_PASSWORD=${DATABASE_PASSWORD}"
+    if [ -n "${CORS_ALLOWED_ORIGINS}" ]; then
+      echo "CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS}"
+    fi
   } | sudo tee "$env_file" >/dev/null
   sudo chmod 600 "$env_file"
   echo "Wrote ${env_file}"

@@ -43,6 +43,7 @@ Repita no Environment `production` com a **outra** EC2 e o DB de produção.
 | -------- | ----------- | ----------- |
 | `TARGET_DIR` | `/srv/dev-fieldops-api` | `/srv/fieldops-api` |
 | `SYSTEMD_SERVICE` | `dev-fieldops-api.service` | `fieldops-api.service` |
+| `CORS_ALLOWED_ORIGINS` | `http://18.205.200.49` | origem(ns) do painel web PRD |
 | `SERVER_PORT` | `8080` | `8080` |
 
 ### 4. Secrets de repositório / organização
@@ -76,12 +77,14 @@ O script `.github/scripts/patch-application-ec2.sh` grava (permissão `600`):
 | `DATABASE_URL` | secret |
 | `DATABASE_USER` | secret |
 | `DATABASE_PASSWORD` | secret |
+| `CORS_ALLOWED_ORIGINS` | `vars.CORS_ALLOWED_ORIGINS` (variable, não secret; omitida se vazia) |
 
 Mapeamento Spring (já no repo):
 
 - `JWT_SECRET` → `fieldops.security.jwt.secret`
 - `DATABASE_URL` / `DATABASE_USER` / `DATABASE_PASSWORD` → datasource (`application-postgres.yml`)
 - `SERVER_PORT` → `server.port`
+- `CORS_ALLOWED_ORIGINS` → `fieldops.security.cors.allowed-origins` (`application-postgres.yml`; lista separada por vírgula, origens exatas, sem `*`; default `http://localhost:3000` se ausente)
 
 Secrets sensíveis passam pelo runner em base64 para o SSH (caracteres especiais seguros).
 
