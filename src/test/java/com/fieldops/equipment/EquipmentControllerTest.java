@@ -43,6 +43,8 @@ class EquipmentControllerTest {
                     .contentType("application/json")
                     .content("{\"name\":\"Pump A\",\"qrCode\":\"pump-a-001\",\"serialNumber\":\"SN-1\"}"))
             .andExpect(status().isCreated())
+            .andExpect(jsonPath("$.qrCode").value(org.hamcrest.Matchers.startsWith("fieldops://equipment/")))
+            .andExpect(jsonPath("$.qrCode").value(org.hamcrest.Matchers.not("pump-a-001")))
             .andExpect(jsonPath("$.siteId").value(siteId.toString()))
             .andExpect(jsonPath("$.status").value("ACTIVE"))
             .andExpect(jsonPath("$.version").value(0))
@@ -50,13 +52,16 @@ class EquipmentControllerTest {
             .getResponse()
             .getContentAsString();
     UUID id = UUID.fromString(json.readTree(created).get("id").asText());
+    String qrCode = json.readTree(created).get("qrCode").asText();
+    org.assertj.core.api.Assertions.assertThat(qrCode).isEqualTo("fieldops://equipment/" + id);
 
     mvc.perform(
             patch("/api/v1/equipment/{equipmentId}", id)
                 .with(supervisor())
                 .contentType("application/json")
-                .content("{\"name\":\"Pump A2\",\"manufacturer\":\"Acme\",\"version\":0}"))
+                .content("{\"name\":\"Pump A2\",\"qrCode\":\"hijack\",\"manufacturer\":\"Acme\",\"version\":0}"))
         .andExpect(status().isOk())
+        .andExpect(jsonPath("$.qrCode").value(qrCode))
         .andExpect(jsonPath("$.name").value("Pump A2"))
         .andExpect(jsonPath("$.siteId").value(siteId.toString()))
         .andExpect(jsonPath("$.version").value(1));
@@ -73,24 +78,17 @@ class EquipmentControllerTest {
   }
 
   @Test
-  void missingSiteDuplicateQrAndStaleVersionUseStandardErrors() throws Exception {
+  void missingSiteAndStaleVersionUseStandardErrors() throws Exception {
     UUID siteId = insertSite();
     mvc.perform(
             post("/api/v1/sites/{siteId}/equipment", UUID.randomUUID())
                 .with(admin())
                 .contentType("application/json")
-                .content("{\"name\":\"Unknown\",\"qrCode\":\"unknown-01\"}"))
+                .content("{\"name\":\"Unknown\"}"))
         .andExpect(status().isNotFound())
         .andExpect(jsonPath("$.code").value("SITE_NOT_FOUND"));
 
     UUID id = insertEquipment(siteId, "pump-01", 0);
-    mvc.perform(
-            post("/api/v1/sites/{siteId}/equipment", siteId)
-                .with(admin())
-                .contentType("application/json")
-                .content("{\"name\":\"Duplicate\",\"qrCode\":\"pump-01\"}"))
-        .andExpect(status().isConflict())
-        .andExpect(jsonPath("$.code").value("QR_CODE_ALREADY_EXISTS"));
     mvc.perform(
             patch("/api/v1/equipment/{equipmentId}/status", id)
                 .with(admin())
@@ -101,48 +99,21 @@ class EquipmentControllerTest {
   }
 
   @Test
-  void supervisorCanAssignUniqueQrCodeAndFindEquipmentByIt() throws Exception {
+  void eachCreatedEquipmentGetsItsOwnGeneratedQrCodeAndCanBeFoundByIt() throws Exception {
     UUID siteId = insertSite();
-    UUID equipmentId = insertEquipment(siteId, "QR-OLD", 0);
+    UUID first = createEquipment(siteId, "Pump 1");
+    UUID second = createEquipment(siteId, "Pump 2");
 
-    mvc.perform(
-            patch("/api/v1/equipment/{equipmentId}/qr-code", equipmentId)
-                .with(supervisor())
-                .contentType("application/json")
-                .content("{\"qrCode\":\"QR-2026-001\",\"version\":0}"))
-        .andExpect(status().isOk())
-        .andExpect(jsonPath("$.qrCode").value("QR-2026-001"))
-        .andExpect(jsonPath("$.version").value(1));
-
-    mvc.perform(get("/api/v1/equipment/by-qr/{qrCode}", "QR-2026-001").with(supervisor()))
-        .andExpect(status().isOk())
-        .andExpect(jsonPath("$.id").value(equipmentId.toString()))
-        .andExpect(jsonPath("$.siteId").value(siteId.toString()));
-    mvc.perform(get("/api/v1/equipment/by-qr/{qrCode}", "QR-OLD").with(supervisor()))
+    for (UUID id : new UUID[] {first, second}) {
+      mvc.perform(get("/api/v1/equipment/by-qr").param("qrCode", "fieldops://equipment/" + id).with(supervisor()))
+          .andExpect(status().isOk())
+          .andExpect(jsonPath("$.id").value(id.toString()))
+          .andExpect(jsonPath("$.siteId").value(siteId.toString()))
+          .andExpect(jsonPath("$.qrCode").value("fieldops://equipment/" + id));
+    }
+    mvc.perform(get("/api/v1/equipment/by-qr").param("qrCode", "QR-UNKNOWN").with(supervisor()))
         .andExpect(status().isNotFound())
         .andExpect(jsonPath("$.code").value("EQUIPMENT_NOT_FOUND"));
-  }
-
-  @Test
-  void duplicateQrCodeAndStaleVersionUseStandardConflictResponses() throws Exception {
-    UUID siteId = insertSite();
-    UUID first = insertEquipment(siteId, "QR-ONE", 0);
-    UUID second = insertEquipment(siteId, "QR-TWO", 0);
-
-    mvc.perform(
-            patch("/api/v1/equipment/{equipmentId}/qr-code", second)
-                .with(admin())
-                .contentType("application/json")
-                .content("{\"qrCode\":\"QR-ONE\",\"version\":0}"))
-        .andExpect(status().isConflict())
-        .andExpect(jsonPath("$.code").value("QR_CODE_ALREADY_EXISTS"));
-    mvc.perform(
-            patch("/api/v1/equipment/{equipmentId}/qr-code", first)
-                .with(admin())
-                .contentType("application/json")
-                .content("{\"qrCode\":\"QR-THREE\",\"version\":4}"))
-        .andExpect(status().isConflict())
-        .andExpect(jsonPath("$.code").value("VERSION_CONFLICT"));
   }
 
   @Test
@@ -161,14 +132,14 @@ class EquipmentControllerTest {
     mvc.perform(get("/api/v1/equipment/by-qr/{qrCode}", "QR-UNIQUE").with(user("viewer").roles("CLIENT_VIEWER")))
         .andExpect(status().isForbidden())
         .andExpect(jsonPath("$.code").value("ACCESS_DENIED"));
-    mvc.perform(
-            patch("/api/v1/equipment/{equipmentId}/qr-code", UUID.randomUUID())
-                .with(user("viewer").roles("CLIENT_VIEWER"))
-                .contentType("application/json")
-                .content("{\"qrCode\":\"QR-DENIED\",\"version\":0}"))
+    mvc.perform(get("/api/v1/equipment/by-qr").param("qrCode", "QR-UNIQUE"))
+        .andExpect(status().isUnauthorized());
+    mvc.perform(get("/api/v1/equipment/by-qr").param("qrCode", "QR-UNIQUE").with(user("tech").roles("TECHNICIAN")))
         .andExpect(status().isForbidden())
         .andExpect(jsonPath("$.code").value("ACCESS_DENIED"));
     mvc.perform(get("/api/v1/equipment/by-qr/{qrCode}", "QR-UNIQUE").with(admin()))
+        .andExpect(status().isOk());
+    mvc.perform(get("/api/v1/equipment/by-qr").param("qrCode", "QR-UNIQUE").with(admin()))
         .andExpect(status().isOk());
   }
 
@@ -190,6 +161,20 @@ class EquipmentControllerTest {
                 .content("{\"name\":\"Pump\",\"qrCode\":\"pump-02\"}"))
         .andExpect(status().isForbidden())
         .andExpect(jsonPath("$.code").value("ACCESS_DENIED"));
+  }
+
+  private UUID createEquipment(UUID siteId, String name) throws Exception {
+    String created =
+        mvc.perform(
+                post("/api/v1/sites/{siteId}/equipment", siteId)
+                    .with(supervisor())
+                    .contentType("application/json")
+                    .content("{\"name\":\"" + name + "\"}"))
+            .andExpect(status().isCreated())
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+    return UUID.fromString(json.readTree(created).get("id").asText());
   }
 
   private UUID insertSite() {

@@ -35,7 +35,7 @@ class ClientControllerTest {
   @Test
   void supervisorCanCreateUpdateListAndLogicallyInactivateAClient() throws Exception {
     String created = mvc.perform(post("/api/v1/clients").with(supervisor()).contentType("application/json")
-            .content("{\"name\":\"Acme\",\"legalName\":\"Acme Ltda\",\"document\":\"12.345.678/0001-00\",\"email\":\"contact@acme.test\",\"phone\":\"11999999999\"}"))
+            .content("{\"name\":\"Acme\",\"legalName\":\"Acme Ltda\",\"document\":\"12345678000100\",\"email\":\"contact@acme.test\",\"phone\":\"11999999999\"}"))
         .andExpect(status().isCreated()).andExpect(jsonPath("$.name").value("Acme"))
         .andExpect(jsonPath("$.status").value("ACTIVE")).andExpect(jsonPath("$.version").value(0))
         .andReturn().getResponse().getContentAsString();
@@ -56,9 +56,9 @@ class ClientControllerTest {
 
   @Test
   void duplicateDocumentAndInvalidVersionUseStandardErrors() throws Exception {
-    UUID id = insertClient("11.111.111/0001-11", 0);
+    UUID id = insertClient("11111111000111", 0);
     mvc.perform(post("/api/v1/clients").with(supervisor()).contentType("application/json")
-            .content("{\"name\":\"Duplicate\",\"document\":\"11.111.111/0001-11\"}"))
+            .content("{\"name\":\"Duplicate\",\"document\":\"11111111000111\"}"))
         .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("DOCUMENT_ALREADY_EXISTS"));
     mvc.perform(patch("/api/v1/clients/{clientId}/status", id).with(supervisor()).contentType("application/json")
             .content("{\"status\":\"INACTIVE\",\"version\":3}"))
@@ -66,10 +66,21 @@ class ClientControllerTest {
   }
 
   @Test
+  void documentIsRequiredAndMustContainExactlyFourteenDigits() throws Exception {
+    for (String body : new String[] {
+        "{\"name\":\"Acme\"}",
+        "{\"name\":\"Acme\",\"document\":\"12.345.678/0001-00\"}",
+        "{\"name\":\"Acme\",\"document\":\"1234567800010\"}"}) {
+      mvc.perform(post("/api/v1/clients").with(supervisor()).contentType("application/json").content(body))
+          .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+    }
+  }
+
+  @Test
   void onlyAdministratorsAndSupervisorsCanManageClients() throws Exception {
     mvc.perform(get("/api/v1/clients")).andExpect(status().isUnauthorized());
     mvc.perform(post("/api/v1/clients").with(user("technician").roles("TECHNICIAN"))
-            .contentType("application/json").content("{\"name\":\"Acme\"}"))
+            .contentType("application/json").content("{\"name\":\"Acme\",\"document\":\"12345678000100\"}"))
         .andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value("ACCESS_DENIED"));
   }
 

@@ -97,6 +97,16 @@ public class EquipmentController {
     return equipment.getByQrCode(qrCode);
   }
 
+  /**
+   * Same lookup as {@code /equipment/by-qr/{qrCode}} for codes that contain {@code /} (generated
+   * codes are {@code fieldops://equipment/<id>}); a slash cannot travel in a path segment
+   * (rejected with 400 by the servlet container / Spring Security firewall).
+   */
+  @GetMapping("/equipment/by-qr")
+  public EquipmentService.Equipment getByQrCodeParam(@RequestParam String qrCode) {
+    return equipment.getByQrCode(qrCode);
+  }
+
   public record EquipmentRequest(
       @NotBlank @Size(max = 160) String name,
       @Size(max = 100) String assetNumber,
