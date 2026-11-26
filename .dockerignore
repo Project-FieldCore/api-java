@@ -1,0 +1,16 @@
+.git
+.github
+.cursor
+.idea
+.vscode
+target
+docs
+openapi
+*.md
+.env
+.env.*
+!.env.example
+Dockerfile
+docker-compose.yml
+.dockerignore
+HELP.md
