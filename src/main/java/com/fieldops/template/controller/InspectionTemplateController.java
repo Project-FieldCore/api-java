@@ -8,6 +8,7 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 import java.net.URI;
+import java.util.List;
 import java.util.UUID;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -28,6 +29,9 @@ public class InspectionTemplateController {
   private final InspectionTemplateService templates;
 
   public InspectionTemplateController(InspectionTemplateService templates) { this.templates = templates; }
+
+  @GetMapping
+  public List<InspectionTemplateService.Template> list() { return templates.list(); }
 
   @PostMapping
   public ResponseEntity<InspectionTemplateService.Template> create(

@@ -389,7 +389,8 @@ public class InspectionSchedulingService {
         + ",\"evidenceRequiredOnFailure\":" + item.evidenceRequiredOnFailure() + "}";
   }
 
-  private Inspection get(UUID id) {
+  /** Returns a persisted inspection for administrative monitoring and direct links. */
+  public Inspection get(UUID id) {
     List<Inspection> inspections = jdbc.query("select * from inspection where id=?", (rs, row) -> mapInspection(rs), id);
     if (inspections.isEmpty()) {
       throw new ApiException(HttpStatus.NOT_FOUND, "INSPECTION_NOT_FOUND", "Inspection not found");

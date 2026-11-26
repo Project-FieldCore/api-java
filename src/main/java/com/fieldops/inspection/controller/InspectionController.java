@@ -69,6 +69,12 @@ public class InspectionController {
     return inspections.list(page, size, sort, status, scheduledFrom, scheduledTo, technicianId, clientId);
   }
 
+  @GetMapping("/{inspectionId}")
+  @PreAuthorize("hasAnyRole('ADMIN','SUPERVISOR')")
+  public InspectionSchedulingService.Inspection get(@PathVariable UUID inspectionId) {
+    return inspections.get(inspectionId);
+  }
+
   @GetMapping(value = "/export.csv", produces = "text/csv")
   @PreAuthorize("hasAnyRole('ADMIN','SUPERVISOR')")
   public ResponseEntity<byte[]> export(@RequestParam(defaultValue = "scheduledFor,asc") String sort,

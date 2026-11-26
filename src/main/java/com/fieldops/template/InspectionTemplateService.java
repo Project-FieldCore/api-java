@@ -23,6 +23,11 @@ public class InspectionTemplateService {
     return templates.getFirst();
   }
 
+  /** Templates persisted in the API, newest first. Used by the web model catalogue and scheduling flow. */
+  public List<Template> list() {
+    return jdbc.query(TEMPLATE_SELECT + " order by t.updated_at desc, t.id desc", (rs, row) -> map(rs));
+  }
+
   @Transactional
   public Template create(CreateCommand command, UUID createdBy) {
     UUID id = UUID.randomUUID();
