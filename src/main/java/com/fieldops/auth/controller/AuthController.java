@@ -5,6 +5,7 @@ import com.fieldops.shared.security.FieldOpsUserPrincipal;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Size;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -41,6 +42,13 @@ public class AuthController {
     auth.logout(body.refreshToken());
   }
 
+  @PostMapping("/change-password")
+  @PreAuthorize("isAuthenticated()")
+  public AuthService.Tokens changePassword(
+      @AuthenticationPrincipal FieldOpsUserPrincipal principal, @Valid @RequestBody ChangePasswordRequest body) {
+    return auth.changePassword(principal.userId(), body.currentPassword(), body.newPassword());
+  }
+
   @GetMapping("/me")
   @PreAuthorize("isAuthenticated()")
   public AuthService.Profile me(@AuthenticationPrincipal FieldOpsUserPrincipal principal) {
@@ -48,6 +56,9 @@ public class AuthController {
   }
 
   public record LoginRequest(@Email @NotBlank String email, @NotBlank String password) {}
+
+  public record ChangePasswordRequest(
+      @NotBlank String currentPassword, @NotBlank @Size(min = 8, max = 128) String newPassword) {}
 
   public record RefreshRequest(@NotBlank String refreshToken) {}
 }

@@ -71,6 +71,13 @@ paths:
       summary: Revoke the current refresh token family
       requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/RefreshTokenRequest'}}}}
       responses: {'204': {description: Logged out}, '400': {$ref: '#/components/responses/ValidationError'}, '401': {$ref: '#/components/responses/Unauthorized'}}
+  /api/v1/auth/change-password:
+    post:
+      tags: [Auth]
+      summary: Change the authenticated user's password (required on first access)
+      description: Revokes every previous session and returns a new token pair. While mustChangePassword is true, every other route answers 403 PASSWORD_CHANGE_REQUIRED.
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/ChangePasswordRequest'}}}}
+      responses: {'200': {description: Password changed, content: {application/json: {schema: {$ref: '#/components/schemas/TokenResponse'}}}}, '400': {$ref: '#/components/responses/ValidationError'}, '401': {$ref: '#/components/responses/Unauthorized'}}
   /api/v1/auth/me:
     get: {tags: [Auth], summary: Get the authenticated user profile, responses: {'200': {description: Authenticated profile, content: {application/json: {schema: {$ref: '#/components/schemas/AuthProfile'}}}}, '401': {$ref: '#/components/responses/Unauthorized'}}}
   /api/v1/users/{userId}/status:
@@ -228,7 +235,8 @@ components:
     LoginRequest: {type: object, required: [email, password], properties: {email: {type: string, format: email}, password: {type: string, format: password, writeOnly: true, minLength: 8}}}
     RefreshTokenRequest: {type: object, required: [refreshToken], properties: {refreshToken: {type: string, writeOnly: true}}}
     TokenResponse: {type: object, required: [accessToken, refreshToken, expiresIn, user], properties: {accessToken: {type: string, readOnly: true}, refreshToken: {type: string, readOnly: true}, tokenType: {type: string, example: Bearer}, expiresIn: {type: integer, example: 900}, user: {$ref: '#/components/schemas/AuthProfile'}}}
-    AuthProfile: {type: object, required: [id, name, email, role], properties: {id: {type: string, format: uuid}, name: {type: string}, email: {type: string, format: email}, role: {$ref: '#/components/schemas/UserRole'}}}
+    ChangePasswordRequest: {type: object, required: [currentPassword, newPassword], properties: {currentPassword: {type: string, format: password}, newPassword: {type: string, format: password, minLength: 8, maxLength: 128}}}
+    AuthProfile: {type: object, required: [id, name, email, role], properties: {id: {type: string, format: uuid}, name: {type: string}, email: {type: string, format: email}, role: {$ref: '#/components/schemas/UserRole'}, mustChangePassword: {type: boolean, description: 'true no primeiro acesso: o cliente deve exigir a troca de senha antes de liberar o sistema'}}}
     UserRole: {type: string, enum: [ADMIN, SUPERVISOR, TECHNICIAN, CLIENT_VIEWER]}
     UserStatus: {type: string, enum: [ACTIVE, INACTIVE, BLOCKED]}
     ActiveStatus: {type: string, enum: [ACTIVE, INACTIVE]}

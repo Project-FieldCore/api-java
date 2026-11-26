@@ -71,7 +71,8 @@ public class UserService {
     if (emailExists(command.email(), null)) throw emailConflict();
     UUID id = UUID.randomUUID();
     jdbc.update(
-        "insert into app_user (id,name,email,password_hash,role,status,phone) values (?,?,?,?,?,?,?)",
+        "insert into app_user (id,name,email,password_hash,role,status,phone,must_change_password) "
+            + "values (?,?,?,?,?,?,?,true)",
         id, command.name(), command.email(), passwords.encode(command.password()), command.role().name(),
         "ACTIVE", command.phone());
     return get(id);

@@ -143,6 +143,65 @@ class AuthControllerTest {
         .andExpect(jsonPath("$.email").value("session@example.com"));
   }
 
+  @Test
+  void firstAccessForcesPasswordChangeBeforeAnyOtherRoute() throws Exception {
+    jdbc.update(
+        "insert into app_user (id,email,name,password_hash,role,status,must_change_password) values (?,?,?,?,?,?,true)",
+        UUID.randomUUID(), "novo@example.com", "Novo", passwords.encode("provisoria-123"), "ADMIN", "ACTIVE");
+
+    String login =
+        mvc.perform(post("/api/v1/auth/login").contentType("application/json")
+                .content("{\"email\":\"novo@example.com\",\"password\":\"provisoria-123\"}"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.user.mustChangePassword").value(true))
+            .andReturn().getResponse().getContentAsString();
+    String access = json.readTree(login).get("accessToken").asText();
+    String refresh = json.readTree(login).get("refreshToken").asText();
+
+    // Sistema bloqueado até a troca de senha.
+    mvc.perform(get("/api/v1/users").header("Authorization", "Bearer " + access))
+        .andExpect(status().isForbidden())
+        .andExpect(jsonPath("$.code").value("PASSWORD_CHANGE_REQUIRED"));
+
+    // Senha atual errada, senha igual à atual e senha curta são recusadas.
+    mvc.perform(post("/api/v1/auth/change-password").header("Authorization", "Bearer " + access)
+            .contentType("application/json")
+            .content("{\"currentPassword\":\"errada\",\"newPassword\":\"nova-senha-123\"}"))
+        .andExpect(status().isUnauthorized());
+    mvc.perform(post("/api/v1/auth/change-password").header("Authorization", "Bearer " + access)
+            .contentType("application/json")
+            .content("{\"currentPassword\":\"provisoria-123\",\"newPassword\":\"provisoria-123\"}"))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.code").value("PASSWORD_UNCHANGED"));
+    mvc.perform(post("/api/v1/auth/change-password").header("Authorization", "Bearer " + access)
+            .contentType("application/json")
+            .content("{\"currentPassword\":\"provisoria-123\",\"newPassword\":\"curta\"}"))
+        .andExpect(status().isBadRequest());
+
+    String changed =
+        mvc.perform(post("/api/v1/auth/change-password").header("Authorization", "Bearer " + access)
+                .contentType("application/json")
+                .content("{\"currentPassword\":\"provisoria-123\",\"newPassword\":\"nova-senha-123\"}"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.user.mustChangePassword").value(false))
+            .andReturn().getResponse().getContentAsString();
+    String newAccess = json.readTree(changed).get("accessToken").asText();
+
+    // Sessão antiga revogada; sessão nova libera o sistema; senha antiga deixa de valer.
+    mvc.perform(post("/api/v1/auth/refresh").contentType("application/json")
+            .content("{\"refreshToken\":\"" + refresh + "\"}"))
+        .andExpect(status().isUnauthorized());
+    mvc.perform(get("/api/v1/users").header("Authorization", "Bearer " + newAccess))
+        .andExpect(status().isOk());
+    mvc.perform(post("/api/v1/auth/login").contentType("application/json")
+            .content("{\"email\":\"novo@example.com\",\"password\":\"provisoria-123\"}"))
+        .andExpect(status().isUnauthorized());
+    mvc.perform(post("/api/v1/auth/login").contentType("application/json")
+            .content("{\"email\":\"novo@example.com\",\"password\":\"nova-senha-123\"}"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.user.mustChangePassword").value(false));
+  }
+
   private void createUser(String email, String status) {
     jdbc.update(
         "insert into app_user (id,email,name,password_hash,role,status) values (?,?,?,?,?,?)",

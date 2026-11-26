@@ -42,14 +42,15 @@ public class AuthService {
   @Transactional
   public Tokens login(String email, String password) {
     var users = jdbc.query(
-        "select id,name,email,password_hash,role,status from app_user where email = ?",
+        "select id,name,email,password_hash,role,status,must_change_password from app_user where email = ?",
         (rs, row) -> new User(
             UUID.fromString(rs.getString("id")),
             rs.getString("name"),
             rs.getString("email"),
             rs.getString("password_hash"),
             rs.getString("role"),
-            rs.getString("status")),
+            rs.getString("status"),
+            rs.getBoolean("must_change_password")),
         email);
     String hash = users.isEmpty() ? DUMMY_PASSWORD_HASH : users.getFirst().hash();
     boolean matches = passwords.matches(password, hash);
@@ -64,7 +65,7 @@ public class AuthService {
   @Transactional(noRollbackFor = ApiException.class)
   public Tokens refresh(String rawToken) {
     var tokens = jdbc.query(
-        "select rt.id,rt.family_id,rt.user_id,rt.revoked_at,rt.expires_at,u.name,u.email,u.role,u.status "
+        "select rt.id,rt.family_id,rt.user_id,rt.revoked_at,rt.expires_at,u.name,u.email,u.role,u.status,u.must_change_password "
             + "from refresh_token rt join app_user u on u.id=rt.user_id where rt.token_hash=?",
         (rs, row) -> new Refresh(
             UUID.fromString(rs.getString("id")),
@@ -75,7 +76,8 @@ public class AuthService {
                 rs.getString("email"),
                 null,
                 rs.getString("role"),
-                rs.getString("status")),
+                rs.getString("status"),
+                rs.getBoolean("must_change_password")),
             rs.getTimestamp("revoked_at") != null,
             rs.getTimestamp("expires_at").toInstant().isAfter(Instant.now())),
         hash(rawToken));
@@ -122,14 +124,15 @@ public class AuthService {
     Claims claims = Jwts.parser().verifyWith(key()).build().parseSignedClaims(accessToken).getPayload();
     UUID id = UUID.fromString(claims.getSubject());
     var users = jdbc.query(
-        "select id,name,email,role,status from app_user where id=?",
+        "select id,name,email,role,status,must_change_password from app_user where id=?",
         (rs, row) -> new User(
             UUID.fromString(rs.getString("id")),
             rs.getString("name"),
             rs.getString("email"),
             null,
             rs.getString("role"),
-            rs.getString("status")),
+            rs.getString("status"),
+            rs.getBoolean("must_change_password")),
         id);
     if (users.isEmpty() || !"ACTIVE".equals(users.getFirst().status())) throw invalidCredentials();
     return users.getFirst();
@@ -137,17 +140,56 @@ public class AuthService {
 
   public Profile profile(UUID id) {
     User user = jdbc.queryForObject(
-        "select id,name,email,role,status from app_user where id=?",
+        "select id,name,email,role,status,must_change_password from app_user where id=?",
         (rs, row) -> new User(
             UUID.fromString(rs.getString("id")),
             rs.getString("name"),
             rs.getString("email"),
             null,
             rs.getString("role"),
-            rs.getString("status")),
+            rs.getString("status"),
+            rs.getBoolean("must_change_password")),
         id);
     if (user == null || !"ACTIVE".equals(user.status())) throw invalidCredentials();
-    return new Profile(user.id(), user.name(), user.email(), user.role());
+    return profileOf(user);
+  }
+
+  private static Profile profileOf(User user) {
+    return new Profile(user.id(), user.name(), user.email(), user.role(), user.mustChangePassword());
+  }
+
+  /**
+   * Primeiro acesso / troca de senha: valida a senha atual, grava a nova, limpa a flag
+   * de troca obrigatória e revoga todas as sessões anteriores, devolvendo uma sessão nova.
+   */
+  @Transactional
+  public Tokens changePassword(UUID userId, String currentPassword, String newPassword) {
+    var users = jdbc.query(
+        "select id,name,email,password_hash,role,status,must_change_password from app_user where id=?",
+        (rs, row) -> new User(
+            UUID.fromString(rs.getString("id")),
+            rs.getString("name"),
+            rs.getString("email"),
+            rs.getString("password_hash"),
+            rs.getString("role"),
+            rs.getString("status"),
+            rs.getBoolean("must_change_password")),
+        userId);
+    if (users.isEmpty() || !"ACTIVE".equals(users.getFirst().status())) throw invalidCredentials();
+    User user = users.getFirst();
+    if (!passwords.matches(currentPassword, user.hash())) {
+      throw new ApiException(HttpStatus.UNAUTHORIZED, "INVALID_CREDENTIALS", "Invalid email or password");
+    }
+    if (passwords.matches(newPassword, user.hash())) {
+      throw new ApiException(
+          HttpStatus.BAD_REQUEST, "PASSWORD_UNCHANGED", "The new password must differ from the current one");
+    }
+    jdbc.update(
+        "update app_user set password_hash=?,must_change_password=false,updated_at=current_timestamp,"
+            + "version=version+1 where id=?",
+        passwords.encode(newPassword), userId);
+    revokeAllSessions(userId);
+    return issue(new User(user.id(), user.name(), user.email(), null, user.role(), user.status(), false));
   }
 
   private Tokens issue(User user) {
@@ -177,7 +219,7 @@ public class AuthService {
         access,
         refresh,
         properties.getJwt().getAccessTtl().toSeconds(),
-        new Profile(user.id(), user.name(), user.email(), user.role()));
+        profileOf(user));
   }
 
   private void revokeFamily(UUID familyId) {
@@ -203,11 +245,12 @@ public class AuthService {
     return new ApiException(HttpStatus.UNAUTHORIZED, "INVALID_CREDENTIALS", "Invalid email or password");
   }
 
-  public record User(UUID id, String name, String email, String hash, String role, String status) {}
+  public record User(
+      UUID id, String name, String email, String hash, String role, String status, boolean mustChangePassword) {}
 
   record Refresh(UUID id, UUID familyId, User user, boolean revoked, boolean unexpired) {}
 
-  public record Profile(UUID id, String name, String email, String role) {}
+  public record Profile(UUID id, String name, String email, String role, boolean mustChangePassword) {}
 
   public record Tokens(String accessToken, String refreshToken, long expiresIn, Profile user) {}
 }
