@@ -7,6 +7,7 @@ import com.fieldops.push.AssignmentPushService;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.time.OffsetDateTime;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -222,18 +223,34 @@ public class InspectionSchedulingService {
     if (scheduledFrom != null && scheduledTo != null && scheduledFrom.isAfter(scheduledTo)) {
       throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_DATE_RANGE", "scheduledFrom must be before scheduledTo");
     }
-    Timestamp from = scheduledFrom == null ? null : Timestamp.from(scheduledFrom.toInstant());
-    Timestamp to = scheduledTo == null ? null : Timestamp.from(scheduledTo.toInstant());
-    String where = " where (? is null or status=?) and (? is null or scheduled_for>=?) and (? is null or scheduled_for<=?)"
-        + " and (? is null or technician_id=?) and (? is null or client_id=?)";
-    Object[] filters = {status == null ? null : status.name(), status == null ? null : status.name(), from, from, to, to,
-        technicianId, technicianId, clientId, clientId};
-    long total = jdbc.queryForObject("select count(*) from inspection" + where, Long.class, filters);
+    StringBuilder where = new StringBuilder(" where 1=1");
+    List<Object> filters = new ArrayList<>();
+    if (status != null) {
+      where.append(" and status=?");
+      filters.add(status.name());
+    }
+    if (scheduledFrom != null) {
+      where.append(" and scheduled_for>=?");
+      filters.add(Timestamp.from(scheduledFrom.toInstant()));
+    }
+    if (scheduledTo != null) {
+      where.append(" and scheduled_for<=?");
+      filters.add(Timestamp.from(scheduledTo.toInstant()));
+    }
+    if (technicianId != null) {
+      where.append(" and technician_id=?");
+      filters.add(technicianId);
+    }
+    if (clientId != null) {
+      where.append(" and client_id=?");
+      filters.add(clientId);
+    }
+    long total = jdbc.queryForObject("select count(*) from inspection" + where, Long.class, filters.toArray());
     List<Inspection> items = jdbc.query(
         "select * from inspection" + where + " order by " + PageQuery.orderBy(sort,
             java.util.Map.of("scheduledFor", "scheduled_for", "status", "status", "priority", "priority", "createdAt", "created_at"))
             + " limit ? offset ?",
-        (rs, row) -> mapInspection(rs), concat(filters, size, page * size));
+        (rs, row) -> mapInspection(rs), concat(filters.toArray(), size, page * size));
     return new Page(items, new PageMeta(page, size, total, (int) Math.ceil((double) total / size)));
   }
 
@@ -243,12 +260,25 @@ public class InspectionSchedulingService {
     if (submittedFrom != null && submittedTo != null && submittedFrom.isAfter(submittedTo)) {
       throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_DATE_RANGE", "submittedFrom must be before submittedTo");
     }
-    Timestamp from = submittedFrom == null ? null : Timestamp.from(submittedFrom.toInstant());
-    Timestamp to = submittedTo == null ? null : Timestamp.from(submittedTo.toInstant());
-    String where = " where i.status='SUBMITTED' and (? is null or i.submitted_at_server>=?) and (? is null or i.submitted_at_server<=?)"
-        + " and (? is null or i.technician_id=?) and (? is null or i.client_id=?)";
-    Object[] filters = {from, from, to, to, technicianId, technicianId, clientId, clientId};
-    long total = jdbc.queryForObject("select count(*) from inspection i" + where, Long.class, filters);
+    StringBuilder where = new StringBuilder(" where i.status='SUBMITTED'");
+    List<Object> filters = new ArrayList<>();
+    if (submittedFrom != null) {
+      where.append(" and i.submitted_at_server>=?");
+      filters.add(Timestamp.from(submittedFrom.toInstant()));
+    }
+    if (submittedTo != null) {
+      where.append(" and i.submitted_at_server<=?");
+      filters.add(Timestamp.from(submittedTo.toInstant()));
+    }
+    if (technicianId != null) {
+      where.append(" and i.technician_id=?");
+      filters.add(technicianId);
+    }
+    if (clientId != null) {
+      where.append(" and i.client_id=?");
+      filters.add(clientId);
+    }
+    long total = jdbc.queryForObject("select count(*) from inspection i" + where, Long.class, filters.toArray());
     List<ReviewQueueItem> items = jdbc.query("select i.id,i.client_id,c.name as client_name,i.site_id,s.name as site_name,"
         + "i.technician_id,u.name as technician_name,i.title,i.priority,i.submitted_at_server,i.scheduled_for from inspection i "
         + "join client c on c.id=i.client_id join inspection_site s on s.id=i.site_id join app_user u on u.id=i.technician_id"
@@ -256,7 +286,7 @@ public class InspectionSchedulingService {
         + " limit ? offset ?", (rs, row) -> new ReviewQueueItem(uuid(rs.getString("id")), uuid(rs.getString("client_id")),
             rs.getString("client_name"), uuid(rs.getString("site_id")), rs.getString("site_name"), uuid(rs.getString("technician_id")),
             rs.getString("technician_name"), rs.getString("title"), Priority.valueOf(rs.getString("priority")),
-            rs.getTimestamp("submitted_at_server").toInstant(), rs.getTimestamp("scheduled_for").toInstant()), concat(filters, size, page * size));
+            rs.getTimestamp("submitted_at_server").toInstant(), rs.getTimestamp("scheduled_for").toInstant()), concat(filters.toArray(), size, page * size));
     return new ReviewPage(items, new PageMeta(page, size, total, (int) Math.ceil((double) total / size)));
   }
 

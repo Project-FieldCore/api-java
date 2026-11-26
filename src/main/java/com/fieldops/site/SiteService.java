@@ -5,6 +5,7 @@ import com.fieldops.shared.pagination.PageQuery;
 import java.math.BigDecimal;
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.http.HttpStatus;
@@ -24,13 +25,25 @@ public class SiteService {
   }
 
   public Page list(int page, int size, String sort, String query, Status status, UUID clientId) {
-    String where = " where (? is null or lower(name) like lower(?) or lower(city) like lower(?) or lower(state) like lower(?)) and (? is null or status=?) and (? is null or client_id=?)";
-    String match = query == null || query.isBlank() ? null : "%" + query.trim() + "%";
-    Object[] filter = {match, match, match, match, status == null ? null : status.name(), status == null ? null : status.name(), clientId, clientId};
-    long total = jdbc.queryForObject("select count(*) from inspection_site" + where, Long.class, filter);
+    StringBuilder where = new StringBuilder(" where 1=1");
+    List<Object> filter = new ArrayList<>();
+    if (query != null && !query.isBlank()) {
+      String match = "%" + query.trim() + "%";
+      where.append(" and (lower(name) like lower(?) or lower(city) like lower(?) or lower(state) like lower(?))");
+      for (int i = 0; i < 3; i++) filter.add(match);
+    }
+    if (status != null) {
+      where.append(" and status=?");
+      filter.add(status.name());
+    }
+    if (clientId != null) {
+      where.append(" and client_id=?");
+      filter.add(clientId);
+    }
+    long total = jdbc.queryForObject("select count(*) from inspection_site" + where, Long.class, filter.toArray());
     List<Site> items = jdbc.query(
         "select * from inspection_site" + where + " order by " + PageQuery.orderBy(sort, java.util.Map.of("name", "name", "city", "city", "createdAt", "created_at")) + " limit ? offset ?",
-        (rs, row) -> map(rs), concat(filter, size, page * size));
+        (rs, row) -> map(rs), concat(filter.toArray(), size, page * size));
     return new Page(items, new PageMeta(page, size, total, (int) Math.ceil((double) total / size)));
   }
 

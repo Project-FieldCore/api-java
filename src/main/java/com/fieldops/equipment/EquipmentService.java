@@ -8,6 +8,7 @@ import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -23,13 +24,25 @@ public class EquipmentService {
   public EquipmentService(JdbcTemplate jdbc) { this.jdbc = jdbc; }
 
   public Page list(int page, int size, String sort, String query, Status status, UUID siteId) {
-    String where = " where (? is null or lower(name) like lower(?) or lower(qr_code) like lower(?) or lower(asset_number) like lower(?) or lower(serial_number) like lower(?)) and (? is null or status=?) and (? is null or site_id=?)";
-    String match = query == null || query.isBlank() ? null : "%" + query.trim() + "%";
-    Object[] filter = {match, match, match, match, match, status == null ? null : status.name(), status == null ? null : status.name(), siteId, siteId};
-    long total = jdbc.queryForObject("select count(*) from equipment" + where, Long.class, filter);
+    StringBuilder where = new StringBuilder(" where 1=1");
+    List<Object> filter = new ArrayList<>();
+    if (query != null && !query.isBlank()) {
+      String match = "%" + query.trim() + "%";
+      where.append(" and (lower(name) like lower(?) or lower(qr_code) like lower(?) or lower(asset_number) like lower(?) or lower(serial_number) like lower(?))");
+      for (int i = 0; i < 4; i++) filter.add(match);
+    }
+    if (status != null) {
+      where.append(" and status=?");
+      filter.add(status.name());
+    }
+    if (siteId != null) {
+      where.append(" and site_id=?");
+      filter.add(siteId);
+    }
+    long total = jdbc.queryForObject("select count(*) from equipment" + where, Long.class, filter.toArray());
     List<Equipment> items = jdbc.query(
         "select * from equipment" + where + " order by " + PageQuery.orderBy(sort, java.util.Map.of("name", "name", "qrCode", "qr_code", "createdAt", "created_at")) + " limit ? offset ?",
-        (rs, row) -> map(rs), concat(filter, size, page * size));
+        (rs, row) -> map(rs), concat(filter.toArray(), size, page * size));
     return new Page(items, new PageMeta(page, size, total, (int) Math.ceil((double) total / size)));
   }
 
