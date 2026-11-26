@@ -290,6 +290,25 @@ public class InspectionSchedulingService {
     return new ReviewPage(items, new PageMeta(page, size, total, (int) Math.ceil((double) total / size)));
   }
 
+  /** Server-side operational view of non-conformities; never reconstructed from browser state. */
+  public NonConformityPage listNonConformities(int page, int size, Severity severity, NonConformityStatus status) {
+    StringBuilder where = new StringBuilder(" where 1=1");
+    List<Object> filters = new ArrayList<>();
+    if (severity != null) { where.append(" and n.severity=?"); filters.add(severity.name()); }
+    if (status != null) { where.append(" and n.status=?"); filters.add(status.name()); }
+    long total = jdbc.queryForObject("select count(*) from non_conformity n" + where, Long.class, filters.toArray());
+    List<NonConformityListItem> items = jdbc.query(
+        "select n.id,n.inspection_id,n.severity,n.description,n.status,n.created_at,c.name client_name,s.name site_name,coalesce(snap.item_title,'Item de inspeção') item_title "
+            + "from non_conformity n join inspection i on i.id=n.inspection_id join client c on c.id=i.client_id join inspection_site s on s.id=i.site_id "
+            + "left join inspection_response r on r.id=n.inspection_response_id left join inspection_item_snapshot snap on snap.id=r.inspection_item_id"
+            + where + " order by case when n.status='OPEN' then 0 else 1 end,n.created_at desc,n.id desc limit ? offset ?",
+        (rs, row) -> new NonConformityListItem(uuid(rs.getString("id")), uuid(rs.getString("inspection_id")),
+            rs.getString("item_title"), Severity.valueOf(rs.getString("severity")), rs.getString("description"),
+            NonConformityStatus.valueOf(rs.getString("status")), rs.getString("client_name"), rs.getString("site_name"), rs.getTimestamp("created_at").toInstant()),
+        concat(filters.toArray(), size, page * size));
+    return new NonConformityPage(items, new PageMeta(page, size, total, (int) Math.ceil((double) total / size)));
+  }
+
   /** Evidências e não conformidades já recebidas pela API para o acompanhamento. */
   public Monitoring monitoring(UUID inspectionId) {
     get(inspectionId);
@@ -413,6 +432,9 @@ public class InspectionSchedulingService {
   public record ReviewPage(List<ReviewQueueItem> items, PageMeta page) {}
   public record ReviewQueueItem(UUID id, UUID clientId, String clientName, UUID siteId, String siteName, UUID technicianId,
                                 String technicianName, String title, Priority priority, Instant submittedAt, Instant scheduledFor) {}
+  public record NonConformityListItem(UUID id, UUID inspectionId, String itemTitle, Severity severity, String description,
+                                      NonConformityStatus status, String clientName, String siteName, Instant createdAt) {}
+  public record NonConformityPage(List<NonConformityListItem> items, PageMeta page) {}
   public record PageMeta(int page, int size, long totalElements, int totalPages) {}
   public enum Severity { LOW, MEDIUM, HIGH, CRITICAL }
   public enum NonConformityStatus { OPEN, RESOLVED, WAIVED }

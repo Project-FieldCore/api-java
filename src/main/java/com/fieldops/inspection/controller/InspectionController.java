@@ -100,6 +100,16 @@ public class InspectionController {
     return inspections.reviewQueue(page, size, sort, submittedFrom, submittedTo, technicianId, clientId);
   }
 
+  @GetMapping("/non-conformities")
+  @PreAuthorize("hasAnyRole('ADMIN','SUPERVISOR')")
+  public InspectionSchedulingService.NonConformityPage nonConformities(
+      @RequestParam(defaultValue = "0") @Min(0) int page,
+      @RequestParam(defaultValue = "20") @Min(1) @jakarta.validation.constraints.Max(100) int size,
+      @RequestParam(required = false) InspectionSchedulingService.Severity severity,
+      @RequestParam(required = false) InspectionSchedulingService.NonConformityStatus status) {
+    return inspections.listNonConformities(page, size, severity, status);
+  }
+
   @GetMapping("/{inspectionId}/monitoring")
   @PreAuthorize("hasAnyRole('ADMIN','SUPERVISOR')")
   public InspectionSchedulingService.Monitoring monitoring(@PathVariable UUID inspectionId) {
