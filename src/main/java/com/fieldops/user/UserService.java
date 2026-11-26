@@ -6,6 +6,7 @@ import com.fieldops.shared.security.Role;
 import com.fieldops.shared.pagination.PageQuery;
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.http.HttpStatus;
@@ -27,15 +28,27 @@ public class UserService {
   }
 
   public Page list(int page, int size, String sort, String query, Status status, Role role) {
-    String where = " where (? is null or lower(name) like lower(?) or lower(email) like lower(?))"
-        + " and (? is null or status=?) and (? is null or role=?)";
-    String match = query == null || query.isBlank() ? null : "%" + query.trim() + "%";
-    Object[] filter = {match, match, match, status == null ? null : status.name(), status == null ? null : status.name(), role == null ? null : role.name(), role == null ? null : role.name()};
-    long total = jdbc.queryForObject("select count(*) from app_user" + where, Long.class, filter);
+    StringBuilder where = new StringBuilder(" where 1=1");
+    List<Object> filter = new ArrayList<>();
+    if (query != null && !query.isBlank()) {
+      String match = "%" + query.trim() + "%";
+      where.append(" and (lower(name) like lower(?) or lower(email) like lower(?))");
+      filter.add(match);
+      filter.add(match);
+    }
+    if (status != null) {
+      where.append(" and status=?");
+      filter.add(status.name());
+    }
+    if (role != null) {
+      where.append(" and role=?");
+      filter.add(role.name());
+    }
+    long total = jdbc.queryForObject("select count(*) from app_user" + where, Long.class, filter.toArray());
     List<User> items = jdbc.query(
         "select id,name,email,role,status,phone,created_at,updated_at,version from app_user "
             + where + " order by " + PageQuery.orderBy(sort, java.util.Map.of("name", "name", "email", "email", "createdAt", "created_at")) + " limit ? offset ?",
-        (rs, row) -> map(rs), concat(filter, size, page * size));
+        (rs, row) -> map(rs), concat(filter.toArray(), size, page * size));
     return new Page(items, new PageMeta(page, size, total, (int) Math.ceil((double) total / size)));
   }
 
