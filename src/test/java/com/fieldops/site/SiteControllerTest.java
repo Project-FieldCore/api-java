@@ -36,7 +36,7 @@ class SiteControllerTest {
     UUID clientId = insertClient("Acme Ltda");
     String response = mvc.perform(post("/api/v1/clients/{clientId}/sites", clientId).with(supervisor())
             .contentType("application/json")
-            .content("{\"name\":\"Planta Sul\",\"city\":\"Sorocaba\",\"state\":\"SP\"}"))
+            .content("{\"name\":\"Planta Sul\",\"addressLine\":\"Rua A, 100\",\"city\":\"Sorocaba\",\"state\":\"SP\"}"))
         .andExpect(status().isCreated())
         .andExpect(jsonPath("$.clientId").value(clientId.toString()))
         .andExpect(jsonPath("$.status").value("ACTIVE"))
@@ -66,16 +66,24 @@ class SiteControllerTest {
   void missingClientDuplicateNameAndStaleVersionReturnStandardErrors() throws Exception {
     UUID clientId = insertClient("Acme Ltda");
     mvc.perform(post("/api/v1/clients/{clientId}/sites", UUID.randomUUID()).with(admin()).contentType("application/json")
-            .content("{\"name\":\"Unknown\"}"))
+            .content("{\"name\":\"Unknown\",\"addressLine\":\"Rua A, 100\"}"))
         .andExpect(status().isNotFound()).andExpect(jsonPath("$.code").value("CLIENT_NOT_FOUND"));
 
     UUID siteId = insertSite(clientId, "Planta Sul", 0);
     mvc.perform(post("/api/v1/clients/{clientId}/sites", clientId).with(admin()).contentType("application/json")
-            .content("{\"name\":\"Planta Sul\"}"))
+            .content("{\"name\":\"Planta Sul\",\"addressLine\":\"Rua A, 100\"}"))
         .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("SITE_NAME_ALREADY_EXISTS"));
     mvc.perform(patch("/api/v1/sites/{siteId}/status", siteId).with(admin()).contentType("application/json")
             .content("{\"status\":\"INACTIVE\",\"version\":3}"))
         .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("VERSION_CONFLICT"));
+  }
+
+  @Test
+  void addressLineIsRequiredToCreateASite() throws Exception {
+    UUID clientId = insertClient("Acme Ltda");
+    mvc.perform(post("/api/v1/clients/{clientId}/sites", clientId).with(supervisor()).contentType("application/json")
+            .content("{\"name\":\"Sem endereço\"}"))
+        .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
   }
 
   @Test
